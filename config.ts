@@ -12,7 +12,7 @@
 
 // --- DÁN LINK CỦA BẠN VÀO ĐÂY ---
 export const GOOGLE_SCRIPT_URL = ''; 
-// Ví dụ: export const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx.../exec';
+// Ví dụ: export const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxKp7YdUb63upUye7kxLBCOi2ZgFQjRHlksM_kaqRvFvnFCAD8Xf734ZFg59xiDQKhwyw/exec';
 
 // LƯU Ý QUAN TRỌNG:
 // - Sau khi dán link, hãy đẩy code lên GitHub/Vercel.
