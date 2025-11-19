@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import type { Order, BankInfo, ActivityLog, User, DiscussionEntry } from '../types';
 import Modal from './Modal';
 import { OrderStatus } from '../types';
-import { TruckIcon, ClipboardDocumentIcon, CheckCircleIcon, ArrowUturnLeftIcon, CreditCardIcon, ChatBubbleLeftEllipsisIcon } from './icons';
+import { TruckIcon, ClipboardDocumentIcon, CheckCircleIcon, ArrowUturnLeftIcon, CreditCardIcon, ChatBubbleLeftEllipsisIcon, PencilIcon } from './icons';
 import { useToast } from './Toast';
 import ActivityFeed from './ActivityFeed';
 import DiscussionInput from './DiscussionInput';
@@ -150,11 +150,15 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, bankInfo, ac
                     <ArrowUturnLeftIcon className="w-4 h-4"/> Xử lý Đổi/Trả
                 </button>
              )}
-            <button onClick={() => onOpenMessageTemplates(order)} className="btn-muted px-3 py-2 text-sm flex items-center gap-2">
+            
+            {/* Message Template Button - Highlighted */}
+            <button onClick={() => onOpenMessageTemplates(order)} className="btn-primary px-3 py-2 text-sm flex items-center gap-2 shadow-sm">
                 <ChatBubbleLeftEllipsisIcon className="w-4 h-4" /> Mẫu tin nhắn
             </button>
-            <button onClick={() => onPrintInvoice(order)} className="btn-muted px-3 py-2 text-sm">In hóa đơn</button>
-            <button onClick={() => onEdit(order)} className="btn-primary px-3 py-2 text-sm">Sửa đơn hàng</button>
+            
+            <button onClick={() => onEdit(order)} className="btn-muted px-3 py-2 text-sm flex items-center gap-2">
+                <PencilIcon className="w-4 h-4"/> Sửa
+            </button>
           </div>
         </div>
 
