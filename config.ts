@@ -11,7 +11,7 @@
 // 5. Dán link đó vào giữa hai dấu nháy đơn '' ở dòng bên dưới (biến GOOGLE_SCRIPT_URL).
 
 // --- DÁN LINK CỦA BẠN VÀO ĐÂY ---
-export const GOOGLE_SCRIPT_URL = ''; 
+export const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxKp7YdUb63upUye7kxLBCOi2ZgFQjRHlksM_kaqRvFvnFCAD8Xf734ZFg59xiDQKhwyw/exec'; 
 // Ví dụ: export const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxKp7YdUb63upUye7kxLBCOi2ZgFQjRHlksM_kaqRvFvnFCAD8Xf734ZFg59xiDQKhwyw/exec';
 
 // LƯU Ý QUAN TRỌNG:
