@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI, Type } from '@google/genai';
 
 // Components
@@ -54,6 +54,7 @@ import {
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useAuth } from './hooks/useAuth';
 import { sampleProducts, sampleCustomers, sampleOrders, sampleFacebookPosts, sampleAutomationRules, sampleActivityLogs, sampleReturnRequests } from './data/sampleData';
+import { syncToGoogleSheets } from './services/googleSheetsService';
 
 // Types
 import type { Order, Product, Customer, Voucher, BankInfo, ParsedOrderData, ParsedOrderItem, OrderItem, SocialPostConfig, UiMode, ThemeSettings, ActivityLog, AutomationRule, Page, User, DiscussionEntry, PaymentStatus, ReturnRequest, ReturnRequestItem, ProductVariant, GoogleSheetsConfig, Role } from './types';
@@ -98,9 +99,14 @@ const AppContent: React.FC = () => {
     const [returnRequests, setReturnRequests] = useLocalStorage<ReturnRequest[]>('returnRequests-v2', sampleReturnRequests);
 
     // Google Sheets Config
-    const [googleSheetsConfig, setGoogleSheetsConfig] = useLocalStorage<GoogleSheetsConfig>('googleSheetsConfig-v1', { scriptUrl: '' });
+    const [googleSheetsConfig, setGoogleSheetsConfig] = useLocalStorage<GoogleSheetsConfig>('googleSheetsConfig-v1', { scriptUrl: '', autoSync: false });
 
     const toast = useToast();
+    
+    // Refs for Auto Sync
+    const allDataRef = useRef<any>(null);
+    const googleConfigRef = useRef<GoogleSheetsConfig>(googleSheetsConfig);
+    const isSyncingRef = useRef(false);
 
     // New Theme Engine State
     const [theme, setTheme] = useLocalStorage<ThemeSettings>('themeSettings-v2', {
@@ -115,6 +121,42 @@ const AppContent: React.FC = () => {
     
     // Invoice State (must be outside renderView)
     const [invoiceOrder, setInvoiceOrder] = useState<Order | null>(null);
+
+    // Update refs whenever data changes
+    useEffect(() => {
+        allDataRef.current = {
+            orders, products, customers, vouchers, bankInfo, socialConfigs, uiMode, theme, activityLog, automationRules, returnRequests, users
+        };
+        googleConfigRef.current = googleSheetsConfig;
+    }, [orders, products, customers, vouchers, bankInfo, socialConfigs, uiMode, theme, activityLog, automationRules, returnRequests, users, googleSheetsConfig]);
+
+    // --- Auto Sync Interval ---
+    useEffect(() => {
+        const intervalId = setInterval(async () => {
+            const config = googleConfigRef.current;
+            
+            if (config.autoSync && config.scriptUrl && !isSyncingRef.current) {
+                console.log("Starting Auto Sync...");
+                isSyncingRef.current = true;
+                
+                try {
+                    await syncToGoogleSheets(config.scriptUrl, allDataRef.current);
+                    // Update lastSynced silently without re-triggering a full render loop just for this if possible,
+                    // but here we need to update the state to persist the timestamp.
+                    // To avoid infinite loops, we rely on the ref for the interval logic.
+                    setGoogleSheetsConfig(prev => ({ ...prev, lastSynced: new Date().toISOString() }));
+                    console.log("Auto Sync Success");
+                } catch (error) {
+                    console.error("Auto Sync Failed", error);
+                    // Optionally toast here if critical, but better to be silent for background tasks unless repeated failures.
+                } finally {
+                    isSyncingRef.current = false;
+                }
+            }
+        }, 60000); // Run every 60 seconds
+
+        return () => clearInterval(intervalId);
+    }, []); // Empty dependency array: runs once on mount, uses refs for current data
 
     // --- Data Migration & Safety Checks ---
     useEffect(() => {

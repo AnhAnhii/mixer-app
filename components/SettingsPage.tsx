@@ -2,7 +2,7 @@
 import React, { useRef, useState } from 'react';
 import type { BankInfo, Order, Product, Customer, Voucher, SocialPostConfig, UiMode, ThemeSettings, ActivityLog, AutomationRule, ReturnRequest, GoogleSheetsConfig, User } from '../types';
 import { banks } from '../data/banks';
-import { ArrowDownTrayIcon, ArrowUpTrayIcon, ArrowPathIcon, SparklesIcon, ClipboardDocumentIcon, CheckCircleIcon } from './icons';
+import { ArrowDownTrayIcon, ArrowUpTrayIcon, ArrowPathIcon, SparklesIcon, ClipboardDocumentIcon, CheckCircleIcon, ClockIcon } from './icons';
 import { syncToGoogleSheets, fetchFromGoogleSheets } from '../services/googleSheetsService';
 import { useToast } from './Toast';
 
@@ -408,6 +408,23 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ bankInfo, allData, onImport
                              {isSyncing ? 'Đang tải...' : '📥 Tải về từ Cloud'}
                          </button>
                      </div>
+                     
+                     <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg border border-border">
+                         <div className="flex items-center gap-3">
+                             <ClockIcon className="w-5 h-5 text-muted-foreground" />
+                             <div>
+                                 <p className="font-medium text-sm text-card-foreground">Tự động đồng bộ (Mỗi phút)</p>
+                                 <p className="text-xs text-muted-foreground">Hệ thống sẽ tự động lưu dữ liệu lên Cloud sau mỗi 60 giây.</p>
+                             </div>
+                         </div>
+                         <div 
+                            onClick={() => setGoogleSheetsConfig({ ...googleSheetsConfig, autoSync: !googleSheetsConfig.autoSync })} 
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${googleSheetsConfig.autoSync ? 'bg-green-500' : 'bg-gray-300'}`}
+                        >
+                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${googleSheetsConfig.autoSync ? 'translate-x-6' : 'translate-x-1'}`} />
+                        </div>
+                     </div>
+
                      {googleSheetsConfig.lastSynced && (
                          <p className="text-xs text-center text-muted-foreground mt-2">
                              Lần đồng bộ cuối: {new Date(googleSheetsConfig.lastSynced).toLocaleString('vi-VN')}

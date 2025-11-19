@@ -196,6 +196,7 @@ export interface ThemeSettings {
 export interface GoogleSheetsConfig {
   scriptUrl: string;
   lastSynced?: string;
+  autoSync?: boolean;
 }
 
 // --- Activity Log Types ---
