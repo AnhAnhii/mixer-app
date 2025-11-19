@@ -402,7 +402,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ bankInfo, allData, onImport
                                      <li>Chọn <strong>Tiện ích mở rộng</strong> &gt; <strong>Apps Script</strong>.</li>
                                      <li>Xóa hết mã cũ, sao chép và dán mã bên dưới vào.</li>
                                      <li>Nhấn Lưu (💾).</li>
-                                     <li>Nhấn <strong>Triển khai (Deploy)</strong> &gt; <strong>Tùy chọn quản lý (Manage deployments)</strong> > Nhấn nút bút chì (Edit).</li>
+                                     <li>Nhấn <strong>Triển khai (Deploy)</strong> &gt; <strong>Tùy chọn quản lý (Manage deployments)</strong> &gt; Nhấn nút bút chì (Edit).</li>
                                      <li>Ở mục "Phiên bản" (Version), chọn <strong>"Phiên bản mới" (New version)</strong>. <span className="text-red-500 font-bold">Bắt buộc phải chọn New version.</span></li>
                                      <li>Nhấn Triển khai (Deploy). Copy URL dán vào ô bên dưới.</li>
                                  </ol>
