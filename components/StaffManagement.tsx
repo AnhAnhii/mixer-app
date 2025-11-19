@@ -39,6 +39,7 @@ const StaffManagement: React.FC<StaffManagementProps> = ({ users, roles, onAddUs
   const [userEmail, setUserEmail] = useState('');
   const [userPassword, setUserPassword] = useState('');
   const [userRole, setUserRole] = useState('');
+  const [userError, setUserError] = useState('');
 
   // --- Role Form State ---
   const [roleName, setRoleName] = useState('');
@@ -46,6 +47,7 @@ const StaffManagement: React.FC<StaffManagementProps> = ({ users, roles, onAddUs
   const [rolePerms, setRolePerms] = useState<Set<Permission>>(new Set());
 
   const handleOpenUserModal = (user?: User) => {
+      setUserError('');
       if (user) {
           setEditingUser(user);
           setUserName(user.name);
@@ -57,7 +59,8 @@ const StaffManagement: React.FC<StaffManagementProps> = ({ users, roles, onAddUs
           setUserName('');
           setUserEmail('');
           setUserPassword('');
-          setUserRole(roles[0]?.id || '');
+          // Select first role by default if available
+          setUserRole(roles.length > 0 ? roles[0].id : '');
       }
       setIsUserModalOpen(true);
   }
@@ -79,11 +82,25 @@ const StaffManagement: React.FC<StaffManagementProps> = ({ users, roles, onAddUs
 
   const handleSaveUser = (e: React.FormEvent) => {
       e.preventDefault();
+      
+      if (!userRole) {
+          setUserError("Vui lòng chọn vai trò cho nhân viên.");
+          return;
+      }
+      if (!userName || !userEmail) {
+          setUserError("Vui lòng điền đầy đủ thông tin.");
+          return;
+      }
+      if (!editingUser && !userPassword) {
+          setUserError("Vui lòng tạo mật khẩu cho nhân viên mới.");
+          return;
+      }
+
       const newUser: User = {
           id: editingUser?.id || crypto.randomUUID(),
           name: userName,
           email: userEmail,
-          password: userPassword,
+          password: userPassword || (editingUser ? editingUser.password : '123456'),
           roleId: userRole,
           avatar: editingUser?.avatar || userName.substring(0, 2).toUpperCase(),
           joinDate: editingUser?.joinDate || new Date().toISOString(),
@@ -172,8 +189,8 @@ const StaffManagement: React.FC<StaffManagementProps> = ({ users, roles, onAddUs
                                       </td>
                                       <td className="px-6 py-4 text-sm text-muted-foreground">{user.email}</td>
                                       <td className="px-6 py-4">
-                                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
-                                              {role?.name || 'Không rõ'}
+                                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${role ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300' : 'bg-red-100 text-red-800'}`}>
+                                              {role?.name || 'Chưa phân quyền'}
                                           </span>
                                       </td>
                                       <td className="px-6 py-4 text-sm text-muted-foreground">{new Date(user.joinDate).toLocaleDateString('vi-VN')}</td>
@@ -239,6 +256,11 @@ const StaffManagement: React.FC<StaffManagementProps> = ({ users, roles, onAddUs
       {/* User Modal */}
       <Modal isOpen={isUserModalOpen} onClose={() => setIsUserModalOpen(false)} title={editingUser ? "Sửa thông tin nhân viên" : "Thêm nhân viên mới"}>
           <form onSubmit={handleSaveUser} className="space-y-4">
+              {userError && (
+                  <div className="bg-red-100 border border-red-200 text-red-700 px-4 py-3 rounded relative" role="alert">
+                      <span className="block sm:inline">{userError}</span>
+                  </div>
+              )}
               <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Họ và tên</label>
                   <input type="text" required value={userName} onChange={e => setUserName(e.target.value)} className="w-full p-2 border rounded bg-white" />
@@ -249,11 +271,12 @@ const StaffManagement: React.FC<StaffManagementProps> = ({ users, roles, onAddUs
               </div>
               <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Mật khẩu {editingUser && '(Để trống nếu không đổi)'}</label>
-                  <input type="password" value={userPassword} onChange={e => setUserPassword(e.target.value)} className="w-full p-2 border rounded bg-white" placeholder="••••••" required={!editingUser} />
+                  <input type="password" value={userPassword} onChange={e => setUserPassword(e.target.value)} className="w-full p-2 border rounded bg-white" placeholder="••••••" />
               </div>
               <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Vai trò</label>
-                  <select value={userRole} onChange={e => setUserRole(e.target.value)} className="w-full p-2 border rounded bg-white">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Vai trò (Bắt buộc)</label>
+                  <select required value={userRole} onChange={e => setUserRole(e.target.value)} className="w-full p-2 border rounded bg-white">
+                      <option value="" disabled>Chọn vai trò</option>
                       {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                   </select>
               </div>

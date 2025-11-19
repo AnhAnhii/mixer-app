@@ -1,6 +1,7 @@
+
 import React from 'react';
 import type { ActivityLog } from '../types';
-import { ClockIcon, BoltIcon, ShoppingBagIcon, UserGroupIcon } from './icons';
+import { ClockIcon, BoltIcon, ShoppingBagIcon, UserGroupIcon, UserCircleIcon } from './icons';
 
 interface ActivityFeedProps {
   logs: ActivityLog[];
@@ -11,13 +12,14 @@ interface ActivityFeedProps {
 const ActivityFeed: React.FC<ActivityFeedProps> = ({ logs, title, limit }) => {
   const displayedLogs = limit ? logs.slice(0, limit) : logs;
 
-  const getIcon = (type?: 'order' | 'customer' | 'system' | 'automation' | 'return') => {
+  const getIcon = (type?: 'order' | 'customer' | 'system' | 'automation' | 'return' | 'user') => {
     switch(type) {
       case 'order': return <ShoppingBagIcon className="w-4 h-4" />;
       // FIX: Add 'return' to the switch case to handle the new entityType and fix the type error.
       case 'return': return <ShoppingBagIcon className="w-4 h-4" />; // Returns are related to orders
       case 'customer': return <UserGroupIcon className="w-4 h-4" />;
       case 'automation': return <BoltIcon className="w-4 h-4" />;
+      case 'user': return <UserCircleIcon className="w-4 h-4" />;
       default: return <ClockIcon className="w-4 h-4" />;
     }
   }

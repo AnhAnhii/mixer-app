@@ -20,59 +20,65 @@ const QuickOrderModal: React.FC<QuickOrderModalProps> = ({ onClose, onParse, isL
   const [useThinkingMode, setUseThinkingMode] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<any>(null);
+  const [isSupported, setIsSupported] = useState(true);
 
   useEffect(() => {
-    const { webkitSpeechRecognition, SpeechRecognition } = window as unknown as IWindow;
-    const SpeechRecognitionConstructor = SpeechRecognition || webkitSpeechRecognition;
+    // Safely check for window object
+    if (typeof window !== 'undefined') {
+        const { webkitSpeechRecognition, SpeechRecognition } = window as unknown as IWindow;
+        const SpeechRecognitionConstructor = SpeechRecognition || webkitSpeechRecognition;
 
-    if (SpeechRecognitionConstructor) {
-      const recognition = new SpeechRecognitionConstructor();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = 'vi-VN';
+        if (SpeechRecognitionConstructor) {
+            const recognition = new SpeechRecognitionConstructor();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = 'vi-VN';
 
-      recognition.onresult = (event: any) => {
-        let interimTranscript = '';
-        let finalTranscript = '';
+            recognition.onresult = (event: any) => {
+                let finalTranscript = '';
 
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript;
-          } else {
-            interimTranscript += event.results[i][0].transcript;
-          }
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                if (event.results[i].isFinal) {
+                    finalTranscript += event.results[i][0].transcript;
+                }
+                }
+                
+                if (finalTranscript) {
+                    setText(prev => prev + ' ' + finalTranscript);
+                }
+            };
+
+            recognition.onend = () => {
+                setIsListening(false);
+            };
+            
+            recognition.onerror = (event: any) => {
+                console.error("Speech recognition error", event.error);
+                setIsListening(false);
+            };
+
+            recognitionRef.current = recognition;
+        } else {
+            setIsSupported(false);
         }
-        
-        // Append to existing text only when final
-        if (finalTranscript) {
-             setText(prev => prev + ' ' + finalTranscript);
-        }
-      };
-
-      recognition.onend = () => {
-        setIsListening(false);
-      };
-      
-      recognition.onerror = (event: any) => {
-        console.error("Speech recognition error", event.error);
-        setIsListening(false);
-      };
-
-      recognitionRef.current = recognition;
     }
   }, []);
 
   const toggleListening = () => {
-    if (!recognitionRef.current) {
-      alert('Trình duyệt của bạn không hỗ trợ nhận diện giọng nói.');
+    if (!isSupported || !recognitionRef.current) {
+      alert('Trình duyệt của bạn không hỗ trợ nhận diện giọng nói. Vui lòng sử dụng Google Chrome hoặc Edge.');
       return;
     }
 
     if (isListening) {
       recognitionRef.current.stop();
     } else {
-      recognitionRef.current.start();
-      setIsListening(true);
+      try {
+        recognitionRef.current.start();
+        setIsListening(true);
+      } catch (e) {
+        console.error("Failed to start recognition:", e);
+      }
     }
   };
 
@@ -99,23 +105,25 @@ const QuickOrderModal: React.FC<QuickOrderModalProps> = ({ onClose, onParse, isL
           className="w-full p-3 border border-gray-300 rounded-md shadow-sm focus:ring-primary focus:border-primary pr-12"
           placeholder={`Ví dụ: "Tên người nhận là Nguyễn Văn A, số điện thoại 0987654321. Địa chỉ ở 123 Đường ABC, Quận 1. Lấy 1 áo thun trắng size M và 2 quần jeans size 30."`}
         />
-        <button
-          type="button"
-          onClick={toggleListening}
-          className={`absolute top-3 right-3 p-2 rounded-full transition-all shadow-sm ${isListening ? 'bg-red-500 text-white animate-pulse ring-4 ring-red-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-          title={isListening ? "Dừng ghi âm" : "Nhập bằng giọng nói"}
-        >
-           {isListening ? (
-             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-               <path d="M8.25 4.5a3.75 3.75 0 1 1 7.5 0v8.25a3.75 3.75 0 1 1-7.5 0V4.5Z" />
-               <path d="M6 10.5a.75.75 0 0 1 .75.75v1.5a5.25 5.25 0 1 0 10.5 0v-1.5a.75.75 0 0 1 1.5 0v1.5a6.751 6.751 0 0 1-6 6.709v2.291h3a.75.75 0 0 1 0 1.5h-7.5a.75.75 0 0 1 0-1.5h3v-2.291a6.751 6.751 0 0 1-6-6.709v-1.5A.75.75 0 0 1 6 10.5Z" />
-             </svg>
-           ) : (
-             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-               <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z" />
-             </svg>
-           )}
-        </button>
+        {isSupported && (
+            <button
+            type="button"
+            onClick={toggleListening}
+            className={`absolute top-3 right-3 p-2 rounded-full transition-all shadow-sm ${isListening ? 'bg-red-500 text-white animate-pulse ring-4 ring-red-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+            title={isListening ? "Dừng ghi âm" : "Nhập bằng giọng nói"}
+            >
+            {isListening ? (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                <path d="M8.25 4.5a3.75 3.75 0 1 1 7.5 0v8.25a3.75 3.75 0 1 1-7.5 0V4.5Z" />
+                <path d="M6 10.5a.75.75 0 0 1 .75.75v1.5a5.25 5.25 0 1 0 10.5 0v-1.5a.75.75 0 0 1 1.5 0v1.5a6.751 6.751 0 0 1-6 6.709v2.291h3a.75.75 0 0 1 0 1.5h-7.5a.75.75 0 0 1 0-1.5h3v-2.291a6.751 6.751 0 0 1-6-6.709v-1.5A.75.75 0 0 1 6 10.5Z" />
+                </svg>
+            ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z" />
+                </svg>
+            )}
+            </button>
+        )}
         {isListening && <p className="absolute bottom-3 right-3 text-xs text-red-500 font-medium animate-pulse">Đang nghe...</p>}
       </div>
       

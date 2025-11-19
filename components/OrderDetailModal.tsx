@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import type { Order, BankInfo, ActivityLog, User, DiscussionEntry } from '../types';
 import Modal from './Modal';
@@ -98,11 +99,6 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, bankInfo, ac
     return { text: 'Chờ thanh toán', color: 'bg-yellow-100 text-yellow-800' };
   };
   
-  const handleSaveShipping = () => {
-      onUpdateShipping(order.id, shippingProvider, trackingCode);
-      toast.success('Đã cập nhật thông tin vận chuyển!');
-  };
-
   const handleCreateShippingOrder = () => {
     setIsCreatingShipping(true);
     setTimeout(() => {
@@ -153,7 +149,7 @@ const OrderDetailModal: React.FC<OrderDetailModalProps> = ({ order, bankInfo, ac
                     <ArrowUturnLeftIcon className="w-4 h-4"/> Xử lý Đổi/Trả
                 </button>
              )}
-            <button onClick={() => onOpenMessageTemplates(order)} className="btn-muted px-3 py-2 text-sm">Mẫu tin nhắn</button>
+            <button onClick={() => onGeneratePaymentLink(order)} className="btn-muted px-3 py-2 text-sm">In hóa đơn</button>
             <button onClick={() => onEdit(order)} className="btn-primary px-3 py-2 text-sm">Sửa đơn hàng</button>
           </div>
         </div>

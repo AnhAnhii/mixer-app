@@ -1,8 +1,8 @@
 
 import React, { useRef, useState } from 'react';
-import type { BankInfo, Order, Product, Customer, Voucher, SocialPostConfig, UiMode, ThemeSettings, ActivityLog, AutomationRule, ReturnRequest, GoogleSheetsConfig } from '../types';
+import type { BankInfo, Order, Product, Customer, Voucher, SocialPostConfig, UiMode, ThemeSettings, ActivityLog, AutomationRule, ReturnRequest, GoogleSheetsConfig, User } from '../types';
 import { banks } from '../data/banks';
-import { ArrowDownTrayIcon, ArrowUpTrayIcon, ArrowPathIcon, SparklesIcon } from './icons';
+import { ArrowDownTrayIcon, ArrowUpTrayIcon, ArrowPathIcon, SparklesIcon, ClipboardDocumentIcon, CheckCircleIcon } from './icons';
 import { syncToGoogleSheets, fetchFromGoogleSheets } from '../services/googleSheetsService';
 import { useToast } from './Toast';
 
@@ -20,6 +20,7 @@ interface SettingsPageProps {
     activityLog: ActivityLog[];
     automationRules: AutomationRule[];
     returnRequests: ReturnRequest[];
+    users: User[];
   };
   onImportData: (data: any) => void;
   theme: ThemeSettings;
@@ -28,10 +29,200 @@ interface SettingsPageProps {
   setGoogleSheetsConfig: (config: GoogleSheetsConfig) => void;
 }
 
+// Updated Script based on user specific column request
+const ADVANCED_SCRIPT_CODE = `
+// --- MIXER APP: SCRIPT QUẢN LÝ DỮ LIỆU (PHIÊN BẢN CỘT CHUẨN) ---
+
+function doGet(e) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Database");
+  if (!sheet) return ContentService.createTextOutput(JSON.stringify({ error: "Chưa có dữ liệu" })).setMimeType(ContentService.MimeType.JSON);
+  
+  var data = sheet.getRange("A1").getValue();
+  if (!data) return ContentService.createTextOutput(JSON.stringify({ status: "empty" })).setMimeType(ContentService.MimeType.JSON);
+  
+  return ContentService.createTextOutput(data).setMimeType(ContentService.MimeType.JSON);
+}
+
+function doPost(e) {
+  var lock = LockService.getScriptLock();
+  lock.tryLock(10000);
+
+  try {
+    var doc = SpreadsheetApp.getActiveSpreadsheet();
+    var payload = e.postData.contents;
+    var data = JSON.parse(payload);
+
+    // 1. LƯU BẢN GỐC (để Restore) - Quan trọng không được xóa
+    var sheetDb = doc.getSheetByName("Database");
+    if (!sheetDb) { sheetDb = doc.insertSheet("Database"); sheetDb.hideSheet(); }
+    sheetDb.getRange("A1").setValue(payload);
+    sheetDb.getRange("B1").setValue("Cập nhật: " + new Date());
+
+    // 2. CẬP NHẬT CÁC SHEET BÁO CÁO
+    if (data.orders) updateOrderSheet(doc, data.orders);
+    if (data.products) updateInventorySheet(doc, data.products);
+    if (data.customers) updateCustomerSheet(doc, data.customers);
+    if (data.users) updateStaffSheet(doc, data.users);
+
+    return ContentService.createTextOutput(JSON.stringify({ status: "success" })).setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ status: "error", message: err.toString() })).setMimeType(ContentService.MimeType.JSON);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function updateOrderSheet(doc, orders) {
+  var sheet = doc.getSheetByName("DonHang");
+  if (!sheet) sheet = doc.insertSheet("DonHang");
+  sheet.clear(); 
+
+  // Cấu hình cột theo yêu cầu
+  var headers = [
+    "Mã đơn",           // A
+    "Tên Khách hàng",   // B
+    "Số điện thoại",    // C
+    "Địa chỉ",          // D
+    "Tên sản phẩm",     // E
+    "Size",             // F
+    "Số lượng",         // G
+    "Tổng tiền",        // H
+    "Trạng thái",       // I
+    "Ngày tạo",         // J
+    "Thanh toán"        // K
+  ];
+  
+  // Format Header
+  sheet.getRange(1, 1, 1, headers.length)
+    .setValues([headers])
+    .setFontWeight("bold")
+    .setBackground("#4f46e5")
+    .setFontColor("white");
+
+  if (!orders || orders.length === 0) return;
+
+  var rows = [];
+  orders.forEach(function(order) {
+    // Định dạng ngày giờ
+    var date = new Date(order.orderDate);
+    var dateStr = date.getDate() + "/" + (date.getMonth()+1) + "/" + date.getFullYear();
+    
+    // Loop qua từng sản phẩm để tạo dòng
+    order.items.forEach(function(item) {
+      rows.push([
+        "'" + order.id.substring(0, 8),  // A
+        order.customerName,              // B
+        "'" + order.customerPhone,       // C (Thêm ' để giữ số 0 đầu)
+        order.shippingAddress,           // D
+        item.productName + " (" + item.color + ")", // E (Gộp màu vào tên để rõ ràng)
+        item.size,                       // F
+        item.quantity,                   // G
+        order.totalAmount,               // H
+        order.status,                    // I
+        dateStr,                         // J
+        order.paymentMethod === 'cod' ? 'Tiền mặt' : 'Chuyển khoản' // K
+      ]);
+    });
+  });
+
+  if (rows.length > 0) {
+    sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+  }
+  
+  // Auto resize columns
+  sheet.autoResizeColumns(1, headers.length);
+}
+
+function updateInventorySheet(doc, products) {
+  var sheet = doc.getSheetByName("KhoHang");
+  if (!sheet) sheet = doc.insertSheet("KhoHang");
+  sheet.clear();
+
+  var headers = ["Tên sản phẩm", "Size", "Màu sắc", "Giá bán", "Giá vốn", "Tồn kho", "Cảnh báo"];
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight("bold").setBackground("#059669").setFontColor("white");
+
+  if (!products || products.length === 0) return;
+
+  var rows = [];
+  products.forEach(function(p) {
+    p.variants.forEach(function(v) {
+      rows.push([
+        p.name,
+        v.size,
+        v.color,
+        p.price,
+        p.costPrice || 0,
+        v.stock,
+        v.stock <= v.lowStockThreshold ? "SẮP HẾT" : "Đủ"
+      ]);
+    });
+  });
+
+  if (rows.length > 0) {
+    sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+  }
+  sheet.autoResizeColumns(1, headers.length);
+}
+
+function updateCustomerSheet(doc, customers) {
+  var sheet = doc.getSheetByName("KhachHang");
+  if (!sheet) sheet = doc.insertSheet("KhachHang");
+  sheet.clear();
+
+  var headers = ["Tên khách hàng", "SĐT", "Địa chỉ", "Nhãn", "Ngày tham gia"];
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight("bold").setBackground("#2563eb").setFontColor("white");
+
+  if (!customers || customers.length === 0) return;
+
+  var rows = [];
+  customers.forEach(function(c) {
+    rows.push([
+      c.name,
+      "'" + c.phone,
+      c.address,
+      (c.tags || []).join(", "),
+      new Date(c.createdAt).toLocaleDateString()
+    ]);
+  });
+
+  if (rows.length > 0) {
+    sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+  }
+  sheet.autoResizeColumns(1, headers.length);
+}
+
+function updateStaffSheet(doc, users) {
+  var sheet = doc.getSheetByName("NhanSu");
+  if (!sheet) sheet = doc.insertSheet("NhanSu");
+  sheet.clear();
+
+  var headers = ["Tên nhân viên", "Email", "Vai trò", "Ngày tham gia", "Trạng thái"];
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight("bold").setBackground("#db2777").setFontColor("white");
+
+  if (!users || users.length === 0) return;
+
+  var rows = [];
+  users.forEach(function(u) {
+    rows.push([
+      u.name,
+      u.email,
+      u.roleId,
+      new Date(u.joinDate).toLocaleDateString(),
+      u.status
+    ]);
+  });
+
+  if (rows.length > 0) {
+    sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+  }
+  sheet.autoResizeColumns(1, headers.length);
+}
+`;
+
 const SettingsPage: React.FC<SettingsPageProps> = ({ bankInfo, allData, onImportData, theme, setTheme, googleSheetsConfig, setGoogleSheetsConfig }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [isFacebookConnected, setIsFacebookConnected] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [showScript, setShowScript] = useState(false);
   const toast = useToast();
   
   const getBankName = (bin: string | undefined) => {
@@ -69,7 +260,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ bankInfo, allData, onImport
               try {
                   const result = e.target?.result as string;
                   const data = JSON.parse(result);
-                  // Basic validation
                   if (data.orders && data.products && data.customers) {
                       onImportData(data);
                       toast.success('Dữ liệu đã được nhập thành công!');
@@ -94,11 +284,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ bankInfo, allData, onImport
       
       setIsSyncing(true);
       try {
+          // We send the entire allData object. The GAS script expects this structure to split into sheets.
           await syncToGoogleSheets(googleSheetsConfig.scriptUrl, allData);
           setGoogleSheetsConfig({ ...googleSheetsConfig, lastSynced: new Date().toISOString() });
           toast.success('Đã đồng bộ dữ liệu lên Google Sheet thành công!');
       } catch (error) {
-          toast.error('Đồng bộ thất bại. Vui lòng kiểm tra lại đường dẫn hoặc thử lại sau.');
+          toast.error('Đồng bộ thất bại. Vui lòng kiểm tra lại đường dẫn và chắc chắn bạn đã deploy Script ở chế độ "Anyone" (Bất kỳ ai).');
       } finally {
           setIsSyncing(false);
       }
@@ -128,6 +319,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ bankInfo, allData, onImport
           setIsSyncing(false);
       }
   };
+  
+  const copyScriptToClipboard = () => {
+      navigator.clipboard.writeText(ADVANCED_SCRIPT_CODE);
+      toast.success('Đã sao chép mã Script!');
+  }
 
   return (
     <div className="space-y-8 pb-10">
@@ -140,12 +336,48 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ bankInfo, allData, onImport
         <div id="cloud-sync">
              <h3 className="text-xl font-semibold text-card-foreground mb-4 flex items-center gap-2">
                  <SparklesIcon className="w-6 h-6 text-yellow-500" />
-                 Đồng bộ Đám mây (Google Sheets)
+                 Đồng bộ Đám mây & Chia Sheet
              </h3>
              <div className="bg-card p-6 rounded-xl border border-border shadow-sm">
                  <p className="text-sm text-muted-foreground mb-4">
-                     Lưu trữ toàn bộ dữ liệu của bạn lên Google Sheets hoàn toàn miễn phí. Dữ liệu sẽ được an toàn và có thể truy cập từ thiết bị khác.
+                     Lưu trữ dữ liệu lên Google Sheets và tự động chia thành các tab: <strong>DonHang, KhoHang, KhachHang, NhanSu</strong> với định dạng cột chuẩn để dễ dàng in ấn và báo cáo.
                  </p>
+                 
+                 <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                     <div className="flex justify-between items-center mb-2">
+                         <h4 className="font-semibold text-blue-800 dark:text-blue-300">Hướng dẫn cài đặt Script (Quan trọng)</h4>
+                         <button onClick={() => setShowScript(!showScript)} className="text-xs text-blue-600 dark:text-blue-400 underline font-bold">
+                             {showScript ? 'Ẩn mã' : 'Xem mã & Hướng dẫn'}
+                         </button>
+                     </div>
+                     
+                     {showScript && (
+                         <div className="space-y-3 mt-3 animate-fade-in">
+                             <ol className="list-decimal pl-5 text-sm text-gray-700 dark:text-gray-300 space-y-2">
+                                 <li>Truy cập <a href="https://sheets.new" target="_blank" className="underline text-blue-600">sheets.new</a> để tạo file mới.</li>
+                                 <li>Chọn <strong>Tiện ích mở rộng</strong> &gt; <strong>Apps Script</strong>.</li>
+                                 <li>Xóa hết mã cũ, sao chép và dán mã bên dưới vào.</li>
+                                 <li>Nhấn Lưu (💾).</li>
+                                 <li>Nhấn <strong>Triển khai (Deploy)</strong> &gt; <strong>Tùy chọn mới (New deployment)</strong>.</li>
+                                 <li>Chọn loại: <strong>Web app</strong>.</li>
+                                 <li>Mục "Ai có quyền truy cập" (Who has access): Chọn <strong>"Bất kỳ ai" (Anyone)</strong>. <span className="text-red-500 font-bold">Bước này bắt buộc.</span></li>
+                                 <li>Nhấn Triển khai, cấp quyền và copy URL dán vào ô bên dưới.</li>
+                             </ol>
+                             <div className="relative mt-2">
+                                 <pre className="bg-slate-800 text-green-400 p-3 rounded-md text-xs overflow-x-auto h-64 border border-slate-700">
+                                     {ADVANCED_SCRIPT_CODE}
+                                 </pre>
+                                 <button 
+                                    onClick={copyScriptToClipboard}
+                                    className="absolute top-2 right-2 bg-white/10 hover:bg-white/20 text-white px-2 py-1 rounded transition-colors text-xs flex items-center gap-1"
+                                 >
+                                     <ClipboardDocumentIcon className="w-4 h-4" /> Sao chép
+                                 </button>
+                             </div>
+                         </div>
+                     )}
+                 </div>
+
                  <div className="space-y-4">
                      <div>
                          <label className="block text-sm font-medium text-card-foreground mb-1">Đường dẫn Web App (Script URL)</label>
@@ -154,7 +386,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ bankInfo, allData, onImport
                             value={googleSheetsConfig.scriptUrl}
                             onChange={(e) => setGoogleSheetsConfig({ ...googleSheetsConfig, scriptUrl: e.target.value })}
                             placeholder="https://script.google.com/macros/s/..."
-                            className="w-full p-3 border border-input rounded-md bg-muted text-sm"
+                            className="w-full p-3 border border-input rounded-md bg-muted text-sm font-mono"
                          />
                      </div>
                      
@@ -192,125 +424,59 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ bankInfo, allData, onImport
                 <div className="mb-6">
                     <label className="text-sm font-medium text-muted-foreground mb-3 block">Bảng màu</label>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <div onClick={() => setTheme({ ...theme, palette: 'modern' })} className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${theme.palette === 'modern' ? 'border-primary bg-primary/5' : 'border-border hover:border-gray-400'}`}>
-                            <p className="font-semibold">Modern</p>
-                            <p className="text-xs text-muted-foreground">Mặc định, sạch sẽ.</p>
-                        </div>
-                        <div onClick={() => setTheme({ ...theme, palette: 'elegant' })} className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${theme.palette === 'elegant' ? 'border-primary bg-primary/5' : 'border-border hover:border-gray-400'}`}>
-                            <p className="font-semibold">Elegant</p>
-                            <p className="text-xs text-muted-foreground">Chế độ tối.</p>
-                        </div>
-                        <div onClick={() => setTheme({ ...theme, palette: 'classic' })} className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${theme.palette === 'classic' ? 'border-primary bg-primary/5' : 'border-border hover:border-gray-400'}`}>
-                            <p className="font-semibold">Classic</p>
-                            <p className="text-xs text-muted-foreground">Tương phản cao.</p>
-                        </div>
-                        <div onClick={() => setTheme({ ...theme, palette: 'glass' })} className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${theme.palette === 'glass' ? 'border-primary bg-primary/5' : 'border-border hover:border-gray-400'}`}>
-                            <p className="font-semibold">Glass</p>
-                            <p className="text-xs text-muted-foreground">Hiệu ứng kính mờ.</p>
-                        </div>
+                        {['modern', 'elegant', 'classic', 'glass'].map(p => (
+                             <div key={p} onClick={() => setTheme({ ...theme, palette: p as any })} className={`p-4 rounded-lg border-2 cursor-pointer transition-all capitalize ${theme.palette === p ? 'border-primary bg-primary/5' : 'border-border hover:border-gray-400'}`}>
+                                <p className="font-semibold">{p}</p>
+                            </div>
+                        ))}
                     </div>
                 </div>
                  {/* Density */}
                 <div className="mb-6">
                     <label className="text-sm font-medium text-muted-foreground mb-3 block">Mật độ hiển thị</label>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div onClick={() => setTheme({ ...theme, density: 'comfortable' })} className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${theme.density === 'comfortable' ? 'border-primary bg-primary/5' : 'border-border hover:border-gray-400'}`}>
-                            <p className="font-semibold">Comfortable</p>
-                            <p className="text-xs text-muted-foreground">Thoáng đãng, dễ nhìn.</p>
-                        </div>
-                        <div onClick={() => setTheme({ ...theme, density: 'compact' })} className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${theme.density === 'compact' ? 'border-primary bg-primary/5' : 'border-border hover:border-gray-400'}`}>
-                            <p className="font-semibold">Compact</p>
-                            <p className="text-xs text-muted-foreground">Tối ưu hóa thông tin.</p>
-                        </div>
-                    </div>
-                </div>
-                {/* Style */}
-                <div>
-                    <label className="text-sm font-medium text-muted-foreground mb-3 block">Kiểu dáng</label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div onClick={() => setTheme({ ...theme, style: 'rounded' })} className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${theme.style === 'rounded' ? 'border-primary bg-primary/5' : 'border-border hover:border-gray-400'}`}>
-                            <p className="font-semibold">Rounded</p>
-                            <p className="text-xs text-muted-foreground">Góc bo tròn mềm mại.</p>
-                        </div>
-                        <div onClick={() => setTheme({ ...theme, style: 'sharp' })} className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${theme.style === 'sharp' ? 'border-primary bg-primary/5' : 'border-border hover:border-gray-400'}`}>
-                            <p className="font-semibold">Sharp</p>
-                            <p className="text-xs text-muted-foreground">Góc vuông mạnh mẽ.</p>
-                        </div>
+                        {['comfortable', 'compact'].map(d => (
+                             <div key={d} onClick={() => setTheme({ ...theme, density: d as any })} className={`p-4 rounded-lg border-2 cursor-pointer transition-all capitalize ${theme.density === d ? 'border-primary bg-primary/5' : 'border-border hover:border-gray-400'}`}>
+                                <p className="font-semibold">{d}</p>
+                            </div>
+                        ))}
                     </div>
                 </div>
             </div>
         </div>
 
         <div>
-            <h3 className="text-xl font-semibold text-card-foreground mb-4">Cài đặt Social</h3>
-            <div className="bg-card p-6 rounded-xl border border-border">
-                 <p className="text-sm text-muted-foreground mb-4">
-                    Kết nối Fanpage Facebook của bạn để quản lý và tự động hóa việc trả lời bình luận, tin nhắn cho các bài viết.
-                  </p>
-                  {isFacebookConnected ? (
-                      <div className="flex items-center justify-between p-3 bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-300 rounded-md">
-                          <span>Đã kết nối với Fanpage: <span className="font-bold">Mixer</span></span>
-                          <button onClick={() => setIsFacebookConnected(false)} className="text-xs font-semibold hover:underline">Ngắt kết nối</button>
-                      </div>
-                  ) : (
-                      <button onClick={() => setIsFacebookConnected(true)} className="w-full px-4 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors shadow font-semibold">
-                          Kết nối với Facebook
-                      </button>
-                  )}
-                   <p className="text-xs text-gray-500 mt-2 text-center">Đây là tính năng mô phỏng. Không có kết nối thật sự nào được tạo.</p>
-            </div>
-        </div>
-        <div>
             <h3 className="text-xl font-semibold text-card-foreground mb-4">Cài đặt thanh toán</h3>
             <div className="bg-card p-6 rounded-xl border border-border">
               <p className="text-sm text-muted-foreground mb-4">
-                Thông tin tài khoản dưới đây được sử dụng để tạo mã QR và mẫu tin nhắn chuyển khoản. Đây là thông tin mặc định của hệ thống.
+                Thông tin tài khoản mặc định hiển thị trên hóa đơn và mã QR.
               </p>
               {bankInfo ? (
                 <div className="space-y-4 text-sm">
-                    <div>
-                        <p className="font-medium text-muted-foreground">Ngân hàng</p>
-                        <p className="text-card-foreground font-semibold">{getBankName(bankInfo.bin)}</p>
-                    </div>
-                    <div>
-                        <p className="font-medium text-muted-foreground">Số tài khoản</p>
-                        <p className="text-card-foreground font-semibold">{bankInfo.accountNumber}</p>
-                    </div>
-                     <div>
-                        <p className="font-medium text-muted-foreground">Tên chủ tài khoản</p>
-                        <p className="text-card-foreground font-semibold">{bankInfo.accountName}</p>
-                    </div>
+                    <p><span className="font-medium">Ngân hàng:</span> {getBankName(bankInfo.bin)}</p>
+                    <p><span className="font-medium">STK:</span> {bankInfo.accountNumber}</p>
+                    <p><span className="font-medium">Chủ TK:</span> {bankInfo.accountName}</p>
                 </div>
               ) : (
                 <p className="text-center text-muted-foreground">Chưa có thông tin thanh toán.</p>
               )}
             </div>
         </div>
+
         <div>
-            <h3 className="text-xl font-semibold text-card-foreground mb-4">Quản lý Dữ liệu (File)</h3>
+            <h3 className="text-xl font-semibold text-card-foreground mb-4">Quản lý Dữ liệu (Backup File)</h3>
             <div className="bg-card p-6 rounded-xl border border-border">
-              <div className="space-y-4">
-                  <p className="text-sm text-muted-foreground">
-                      Sao lưu toàn bộ dữ liệu ứng dụng ra file JSON hoặc nhập lại từ file backup.
-                  </p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <button onClick={handleExport} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors shadow">
                           <ArrowDownTrayIcon className="w-5 h-5"/>
-                          Xuất ra File
+                          Xuất file Backup JSON
                       </button>
                       <button onClick={handleImportClick} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors shadow">
                           <ArrowUpTrayIcon className="w-5 h-5" />
-                          Nhập từ File
+                          Khôi phục từ file
                       </button>
-                      <input
-                        type="file"
-                        accept=".json"
-                        ref={fileInputRef}
-                        onChange={handleFileChange}
-                        className="hidden"
-                      />
+                      <input type="file" accept=".json" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
                   </div>
-              </div>
             </div>
         </div>
       </div>
