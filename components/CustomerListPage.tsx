@@ -1,7 +1,9 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import type { Customer } from '../types';
-import { PencilIcon, TrashIcon, PlusIcon, EyeIcon, TagIcon, ArrowDownTrayIcon, UserGroupIcon } from './icons';
+import { PencilIcon, PlusIcon, EyeIcon, TagIcon, ArrowDownTrayIcon, UserGroupIcon, TrashIcon, ExclamationTriangleIcon } from './icons';
 import { useSessionStorage } from '../hooks/useSessionStorage';
+import Modal from './Modal';
 
 interface CustomerListPageProps {
   customers: Customer[];
@@ -16,6 +18,10 @@ const CustomerListPage: React.FC<CustomerListPageProps> = ({ customers, onViewDe
   const [searchTerm, setSearchTerm] = useSessionStorage('customerListSearchTerm', '');
   const [tagFilter, setTagFilter] = useSessionStorage<string | 'all'>('customerListTagFilter', 'all');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  
+  // Delete Confirmation States
+  const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
 
   const allTags = useMemo(() => {
     const tags = new Set<string>();
@@ -73,11 +79,19 @@ const CustomerListPage: React.FC<CustomerListPageProps> = ({ customers, onViewDe
     setSelectedIds(newSelectedIds);
   };
   
-  const handleBulkDeleteClick = () => {
+  const confirmSingleDelete = () => {
+      if(customerToDelete) {
+          onDelete(customerToDelete.id);
+          setCustomerToDelete(null);
+      }
+  }
+
+  const confirmBulkDelete = () => {
       onBulkDelete(Array.from(selectedIds));
       setSelectedIds(new Set());
-  };
-
+      setShowBulkDeleteConfirm(false);
+  }
+  
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 border-b border-border pb-4">
@@ -105,20 +119,17 @@ const CustomerListPage: React.FC<CustomerListPageProps> = ({ customers, onViewDe
                 ))}
             </select>
         </div>
-        <button onClick={handleExportPhones} disabled={filteredCustomers.length === 0} className="btn-secondary flex items-center justify-center gap-2 px-4 py-2 shadow-sm disabled:bg-gray-300 disabled:cursor-not-allowed">
-          <ArrowDownTrayIcon className="w-5 h-5" /> Xuất SĐT
-        </button>
+        <div className="flex gap-2">
+            <button onClick={handleExportPhones} disabled={filteredCustomers.length === 0} className="btn-secondary flex items-center justify-center gap-2 px-4 py-2 shadow-sm disabled:bg-gray-300 disabled:cursor-not-allowed">
+                <ArrowDownTrayIcon className="w-5 h-5" /> Xuất SĐT
+            </button>
+            {selectedIds.size > 0 && (
+                <button onClick={() => setShowBulkDeleteConfirm(true)} className="bg-red-100 text-red-700 hover:bg-red-200 px-4 py-2 rounded-md flex items-center gap-2 font-medium transition-colors">
+                    <TrashIcon className="w-5 h-5" /> Xóa ({selectedIds.size})
+                </button>
+            )}
+        </div>
       </div>
-
-      {selectedIds.size > 0 && (
-          <div className="card-base border p-3 rounded-lg flex justify-between items-center animate-fade-in">
-              <span className="text-sm font-medium">{selectedIds.size} khách hàng đã được chọn</span>
-              <button onClick={handleBulkDeleteClick} className="flex items-center gap-2 text-sm text-red-600 hover:text-red-800 font-semibold p-2 rounded-md hover:bg-red-100">
-                  <TrashIcon className="w-4 h-4" />
-                  Xóa
-              </button>
-          </div>
-      )}
 
       {filteredCustomers.length === 0 ? (
         <div className="text-center py-16 card-base border border-dashed flex flex-col items-center">
@@ -175,14 +186,29 @@ const CustomerListPage: React.FC<CustomerListPageProps> = ({ customers, onViewDe
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
-                      <div className="flex items-center justify-center gap-2">
-                         <button onClick={() => onViewDetails(customer)} className="text-blue-600 hover:text-blue-900 transition-colors p-1 rounded-full hover:bg-blue-100 dark:hover:bg-blue-900/50" title="Xem chi tiết">
+                      <div className="flex items-center justify-center gap-2 relative z-50">
+                         <button 
+                            type="button"
+                            onClick={() => onViewDetails(customer)}
+                            className="text-blue-600 hover:text-blue-900 hover:bg-blue-100 dark:hover:bg-blue-900/50 p-2 rounded-full transition-colors" 
+                            title="Xem chi tiết"
+                         >
                           <EyeIcon className="w-5 h-5" />
                         </button>
-                        <button onClick={() => onEdit(customer)} className="text-primary hover:opacity-80 transition-colors p-1 rounded-full hover:bg-primary/10" title="Sửa">
+                        <button 
+                            type="button"
+                            onClick={() => onEdit(customer)} 
+                            className="text-primary hover:opacity-80 hover:bg-primary/10 p-2 rounded-full transition-colors" 
+                            title="Sửa"
+                        >
                           <PencilIcon className="w-5 h-5" />
                         </button>
-                        <button onClick={() => onDelete(customer.id)} className="text-red-600 hover:text-red-900 transition-colors p-1 rounded-full hover:bg-red-100 dark:hover:bg-red-900/50" title="Xóa">
+                        <button 
+                            type="button"
+                            onClick={() => setCustomerToDelete(customer)} 
+                            className="text-red-600 hover:text-red-900 hover:bg-red-100 dark:hover:bg-red-900/50 p-2 rounded-full transition-colors" 
+                            title="Xóa khách hàng"
+                        >
                           <TrashIcon className="w-5 h-5" />
                         </button>
                       </div>
@@ -194,6 +220,52 @@ const CustomerListPage: React.FC<CustomerListPageProps> = ({ customers, onViewDe
           </div>
         </div>
       )}
+
+       {/* Single Delete Confirmation Modal */}
+       <Modal isOpen={!!customerToDelete} onClose={() => setCustomerToDelete(null)} title="Xác nhận xóa">
+          <div className="space-y-4">
+              <div className="flex items-center gap-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                  <div className="p-3 bg-red-100 dark:bg-red-900/50 rounded-full text-red-600">
+                      <ExclamationTriangleIcon className="w-6 h-6" />
+                  </div>
+                  <div>
+                      <h3 className="font-bold text-red-800 dark:text-red-200">Bạn có chắc chắn muốn xóa?</h3>
+                      <p className="text-sm text-red-700 dark:text-red-300">
+                          Khách hàng <strong>{customerToDelete?.name}</strong> sẽ bị xóa vĩnh viễn.
+                      </p>
+                  </div>
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                  <button onClick={() => setCustomerToDelete(null)} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 font-medium">Hủy bỏ</button>
+                  <button onClick={confirmSingleDelete} className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 font-medium shadow-sm flex items-center gap-2">
+                      <TrashIcon className="w-4 h-4" /> Xóa khách hàng
+                  </button>
+              </div>
+          </div>
+      </Modal>
+
+      {/* Bulk Delete Confirmation Modal */}
+      <Modal isOpen={showBulkDeleteConfirm} onClose={() => setShowBulkDeleteConfirm(false)} title="Xác nhận xóa nhiều">
+          <div className="space-y-4">
+              <div className="flex items-center gap-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                  <div className="p-3 bg-red-100 dark:bg-red-900/50 rounded-full text-red-600">
+                      <ExclamationTriangleIcon className="w-6 h-6" />
+                  </div>
+                  <div>
+                      <h3 className="font-bold text-red-800 dark:text-red-200">Cảnh báo xóa dữ liệu</h3>
+                      <p className="text-sm text-red-700 dark:text-red-300">
+                          Bạn đang chuẩn bị xóa <strong>{selectedIds.size}</strong> khách hàng đã chọn. Hành động này không thể hoàn tác.
+                      </p>
+                  </div>
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                  <button onClick={() => setShowBulkDeleteConfirm(false)} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 font-medium">Hủy bỏ</button>
+                  <button onClick={confirmBulkDelete} className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 font-medium shadow-sm flex items-center gap-2">
+                      <TrashIcon className="w-4 h-4" /> Xóa tất cả
+                  </button>
+              </div>
+          </div>
+      </Modal>
     </div>
   );
 };

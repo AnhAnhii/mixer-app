@@ -1,8 +1,9 @@
 
 import React, { useState } from 'react';
 import type { Product, ProductVariant } from '../types';
-import { PencilIcon, TrashIcon, ChevronDownIcon, PlusIcon, CubeIcon, SparklesIcon } from './icons';
+import { PencilIcon, ChevronDownIcon, PlusIcon, CubeIcon, SparklesIcon, TrashIcon, ExclamationTriangleIcon } from './icons';
 import InventoryForecastModal from './InventoryForecastModal';
+import Modal from './Modal';
 
 interface InventoryListProps {
   products: Product[];
@@ -14,6 +15,7 @@ interface InventoryListProps {
 const InventoryList: React.FC<InventoryListProps> = ({ products, onEdit, onDelete, onAddProduct }) => {
   const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set());
   const [isForecastModalOpen, setIsForecastModalOpen] = useState(false);
+  const [productToDelete, setProductToDelete] = useState<Product | null>(null);
 
   const toggleProductExpansion = (productId: string) => {
     const newSet = new Set(expandedProducts);
@@ -33,6 +35,13 @@ const InventoryList: React.FC<InventoryListProps> = ({ products, onEdit, onDelet
     if (variant.stock <= 0) return 'text-red-600 font-semibold dark:text-red-400';
     if (variant.stock <= variant.lowStockThreshold) return 'text-yellow-600 font-semibold dark:text-yellow-400';
     return 'text-card-foreground';
+  }
+
+  const confirmDelete = () => {
+      if (productToDelete) {
+          onDelete(productToDelete.id);
+          setProductToDelete(null);
+      }
   }
 
   return (
@@ -72,23 +81,41 @@ const InventoryList: React.FC<InventoryListProps> = ({ products, onEdit, onDelet
               <tbody className="bg-card divide-y divide-border">
                 {products.map(product => (
                   <React.Fragment key={product.id}>
-                    <tr className="hover:bg-muted cursor-pointer" onClick={() => toggleProductExpansion(product.id)}>
-                      <td className="px-6 py-4 whitespace-nowrap compact-px compact-py">
+                    <tr className="hover:bg-muted group">
+                      <td onClick={() => toggleProductExpansion(product.id)} className="cursor-pointer px-6 py-4 whitespace-nowrap compact-px compact-py">
                         <div className="flex items-center">
                           <ChevronDownIcon className={`w-5 h-5 text-muted-foreground/70 mr-2 transition-transform ${expandedProducts.has(product.id) ? 'rotate-180' : ''}`} />
                           <span className="text-sm font-medium text-card-foreground compact-text-sm">{product.name}</span>
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-card-foreground text-right font-medium compact-px compact-py compact-text-sm">
+                      <td onClick={() => toggleProductExpansion(product.id)} className="cursor-pointer px-6 py-4 whitespace-nowrap text-sm text-card-foreground text-right font-medium compact-px compact-py compact-text-sm">
                         {product.variants.reduce((sum, v) => sum + v.stock, 0)}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground text-right compact-px compact-py compact-text-sm">{formatCurrency(product.price)}</td>
+                      <td onClick={() => toggleProductExpansion(product.id)} className="cursor-pointer px-6 py-4 whitespace-nowrap text-sm text-muted-foreground text-right compact-px compact-py compact-text-sm">{formatCurrency(product.price)}</td>
+                      
+                      {/* Action Cell */}
                       <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium compact-px compact-py">
-                        <div className="flex items-center justify-center gap-2">
-                          <button onClick={(e) => { e.stopPropagation(); onEdit(product); }} className="text-primary hover:opacity-80 transition-colors p-1 rounded-full hover:bg-primary/10" title="Sửa">
+                        <div className="flex items-center justify-center gap-2 relative z-50">
+                          <button 
+                            type="button"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onEdit(product);
+                            }}
+                            className="text-primary hover:opacity-80 hover:bg-primary/10 p-2 rounded-full transition-colors" 
+                            title="Sửa"
+                          >
                             <PencilIcon className="w-5 h-5" />
                           </button>
-                          <button onClick={(e) => { e.stopPropagation(); onDelete(product.id); }} className="text-red-600 hover:text-red-900 transition-colors p-1 rounded-full hover:bg-red-100 dark:hover:bg-red-900/50" title="Xóa">
+                          <button 
+                            type="button"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setProductToDelete(product);
+                            }}
+                            className="text-red-600 hover:opacity-80 hover:bg-red-100 p-2 rounded-full transition-colors" 
+                            title="Xóa sản phẩm"
+                          >
                             <TrashIcon className="w-5 h-5" />
                           </button>
                         </div>
@@ -133,6 +160,38 @@ const InventoryList: React.FC<InventoryListProps> = ({ products, onEdit, onDelet
         </div>
       )}
       <InventoryForecastModal isOpen={isForecastModalOpen} onClose={() => setIsForecastModalOpen(false)} products={products} />
+
+      {/* Delete Confirmation Modal */}
+      <Modal isOpen={!!productToDelete} onClose={() => setProductToDelete(null)} title="Xác nhận xóa">
+          <div className="space-y-4">
+              <div className="flex items-center gap-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                  <div className="p-3 bg-red-100 dark:bg-red-900/50 rounded-full text-red-600">
+                      <ExclamationTriangleIcon className="w-6 h-6" />
+                  </div>
+                  <div>
+                      <h3 className="font-bold text-red-800 dark:text-red-200">Bạn có chắc chắn muốn xóa?</h3>
+                      <p className="text-sm text-red-700 dark:text-red-300">
+                          Sản phẩm <strong>{productToDelete?.name}</strong> sẽ bị xóa vĩnh viễn khỏi kho hàng.
+                      </p>
+                  </div>
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                  <button 
+                      onClick={() => setProductToDelete(null)}
+                      className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 font-medium"
+                  >
+                      Hủy bỏ
+                  </button>
+                  <button 
+                      onClick={confirmDelete}
+                      className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 font-medium shadow-sm flex items-center gap-2"
+                  >
+                      <TrashIcon className="w-4 h-4" />
+                      Xóa sản phẩm
+                  </button>
+              </div>
+          </div>
+      </Modal>
     </div>
   );
 };

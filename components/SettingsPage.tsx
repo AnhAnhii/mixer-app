@@ -5,6 +5,7 @@ import { banks } from '../data/banks';
 import { ArrowDownTrayIcon, ArrowUpTrayIcon, ArrowPathIcon, SparklesIcon, ClipboardDocumentIcon, CheckCircleIcon, ClockIcon } from './icons';
 import { syncToGoogleSheets, fetchFromGoogleSheets } from '../services/googleSheetsService';
 import { useToast } from './Toast';
+import { GOOGLE_SCRIPT_URL } from '../config';
 
 interface SettingsPageProps {
   bankInfo: BankInfo | null;
@@ -29,9 +30,9 @@ interface SettingsPageProps {
   setGoogleSheetsConfig: (config: GoogleSheetsConfig) => void;
 }
 
-// Updated Script based on user specific column request
+// Updated Script based on user specific column request and formatting preservation
 const ADVANCED_SCRIPT_CODE = `
-// --- MIXER APP: SCRIPT QUẢN LÝ DỮ LIỆU (PHIÊN BẢN CỘT CHUẨN) ---
+// --- MIXER APP: SCRIPT QUẢN LÝ DỮ LIỆU (V2 - GIỮ ĐỊNH DẠNG & TRẠNG THÁI THANH TOÁN) ---
 
 function doGet(e) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Database");
@@ -49,16 +50,17 @@ function doPost(e) {
 
   try {
     var doc = SpreadsheetApp.getActiveSpreadsheet();
+    // Nhận dữ liệu text plain để tránh lỗi CORS
     var payload = e.postData.contents;
     var data = JSON.parse(payload);
 
-    // 1. LƯU BẢN GỐC (để Restore) - Quan trọng không được xóa
+    // 1. LƯU BẢN GỐC (Database) - Để Restore App
     var sheetDb = doc.getSheetByName("Database");
     if (!sheetDb) { sheetDb = doc.insertSheet("Database"); sheetDb.hideSheet(); }
     sheetDb.getRange("A1").setValue(payload);
     sheetDb.getRange("B1").setValue("Cập nhật: " + new Date());
 
-    // 2. CẬP NHẬT CÁC SHEET BÁO CÁO
+    // 2. CẬP NHẬT CÁC SHEET BÁO CÁO (Chỉ xóa nội dung, giữ định dạng)
     if (data.orders) updateOrderSheet(doc, data.orders);
     if (data.products) updateInventorySheet(doc, data.products);
     if (data.customers) updateCustomerSheet(doc, data.customers);
@@ -72,12 +74,19 @@ function doPost(e) {
   }
 }
 
+// Hàm hỗ trợ: Xóa nội dung cũ nhưng giữ tiêu đề và định dạng
+function clearOldData(sheet, headerRowIndex) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow > headerRowIndex) {
+    // Xóa từ dòng sau header đến hết, giữ nguyên Format
+    sheet.getRange(headerRowIndex + 1, 1, lastRow - headerRowIndex, sheet.getLastColumn()).clearContent();
+  }
+}
+
 function updateOrderSheet(doc, orders) {
   var sheet = doc.getSheetByName("DonHang");
   if (!sheet) sheet = doc.insertSheet("DonHang");
-  sheet.clear(); 
 
-  // Cấu hình cột theo yêu cầu
   var headers = [
     "Mã đơn",           // A
     "Tên Khách hàng",   // B
@@ -91,13 +100,18 @@ function updateOrderSheet(doc, orders) {
     "Ngày tạo",         // J
     "Thanh toán"        // K
   ];
-  
-  // Format Header
-  sheet.getRange(1, 1, 1, headers.length)
-    .setValues([headers])
-    .setFontWeight("bold")
-    .setBackground("#4f46e5")
-    .setFontColor("white");
+
+  // Nếu chưa có tiêu đề thì mới tạo, còn có rồi thì giữ nguyên format của user
+  if (sheet.getLastRow() === 0) {
+    sheet.getRange(1, 1, 1, headers.length)
+      .setValues([headers])
+      .setFontWeight("bold")
+      .setBackground("#4f46e5")
+      .setFontColor("white");
+  }
+
+  // Xóa dữ liệu cũ (trừ header)
+  clearOldData(sheet, 1);
 
   if (!orders || orders.length === 0) return;
 
@@ -107,20 +121,28 @@ function updateOrderSheet(doc, orders) {
     var date = new Date(order.orderDate);
     var dateStr = date.getDate() + "/" + (date.getMonth()+1) + "/" + date.getFullYear();
     
+    // Logic trạng thái thanh toán chi tiết
+    var paymentText = "Chờ thanh toán"; // Mặc định
+    if (order.paymentStatus === 'Paid') {
+      paymentText = "Đã thanh toán";
+    } else if (order.paymentMethod === 'cod') {
+      paymentText = "Thu hộ (COD)";
+    }
+
     // Loop qua từng sản phẩm để tạo dòng
     order.items.forEach(function(item) {
       rows.push([
         "'" + order.id.substring(0, 8),  // A
         order.customerName,              // B
-        "'" + order.customerPhone,       // C (Thêm ' để giữ số 0 đầu)
+        "'" + order.customerPhone,       // C
         order.shippingAddress,           // D
-        item.productName + " (" + item.color + ")", // E (Gộp màu vào tên để rõ ràng)
+        item.productName + " (" + item.color + ")", // E
         item.size,                       // F
         item.quantity,                   // G
         order.totalAmount,               // H
         order.status,                    // I
         dateStr,                         // J
-        order.paymentMethod === 'cod' ? 'Tiền mặt' : 'Chuyển khoản' // K
+        paymentText                      // K
       ]);
     });
   });
@@ -128,18 +150,20 @@ function updateOrderSheet(doc, orders) {
   if (rows.length > 0) {
     sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
   }
-  
-  // Auto resize columns
-  sheet.autoResizeColumns(1, headers.length);
+  // Không gọi autoResizeColumns để tôn trọng độ rộng cột người dùng đã chỉnh
 }
 
 function updateInventorySheet(doc, products) {
   var sheet = doc.getSheetByName("KhoHang");
   if (!sheet) sheet = doc.insertSheet("KhoHang");
-  sheet.clear();
-
+  
   var headers = ["Tên sản phẩm", "Size", "Màu sắc", "Giá bán", "Giá vốn", "Tồn kho", "Cảnh báo"];
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight("bold").setBackground("#059669").setFontColor("white");
+  
+  if (sheet.getLastRow() === 0) {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight("bold").setBackground("#059669").setFontColor("white");
+  }
+  
+  clearOldData(sheet, 1);
 
   if (!products || products.length === 0) return;
 
@@ -161,16 +185,19 @@ function updateInventorySheet(doc, products) {
   if (rows.length > 0) {
     sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
   }
-  sheet.autoResizeColumns(1, headers.length);
 }
 
 function updateCustomerSheet(doc, customers) {
   var sheet = doc.getSheetByName("KhachHang");
   if (!sheet) sheet = doc.insertSheet("KhachHang");
-  sheet.clear();
 
   var headers = ["Tên khách hàng", "SĐT", "Địa chỉ", "Nhãn", "Ngày tham gia"];
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight("bold").setBackground("#2563eb").setFontColor("white");
+  
+  if (sheet.getLastRow() === 0) {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight("bold").setBackground("#2563eb").setFontColor("white");
+  }
+
+  clearOldData(sheet, 1);
 
   if (!customers || customers.length === 0) return;
 
@@ -188,16 +215,19 @@ function updateCustomerSheet(doc, customers) {
   if (rows.length > 0) {
     sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
   }
-  sheet.autoResizeColumns(1, headers.length);
 }
 
 function updateStaffSheet(doc, users) {
   var sheet = doc.getSheetByName("NhanSu");
   if (!sheet) sheet = doc.insertSheet("NhanSu");
-  sheet.clear();
 
   var headers = ["Tên nhân viên", "Email", "Vai trò", "Ngày tham gia", "Trạng thái"];
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight("bold").setBackground("#db2777").setFontColor("white");
+  
+  if (sheet.getLastRow() === 0) {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight("bold").setBackground("#db2777").setFontColor("white");
+  }
+  
+  clearOldData(sheet, 1);
 
   if (!users || users.length === 0) return;
 
@@ -215,7 +245,6 @@ function updateStaffSheet(doc, users) {
   if (rows.length > 0) {
     sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
   }
-  sheet.autoResizeColumns(1, headers.length);
 }
 `;
 
@@ -277,15 +306,18 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ bankInfo, allData, onImport
   };
 
   const handleSyncToCloud = async () => {
-      if (!googleSheetsConfig.scriptUrl) {
+      if (!googleSheetsConfig.scriptUrl && !GOOGLE_SCRIPT_URL) {
           toast.error('Vui lòng nhập đường dẫn Web App (Script URL) trước.');
           return;
       }
       
       setIsSyncing(true);
       try {
+          // Use configured URL or fallback to manual input
+          const urlToUse = GOOGLE_SCRIPT_URL || googleSheetsConfig.scriptUrl;
+          
           // We send the entire allData object. The GAS script expects this structure to split into sheets.
-          await syncToGoogleSheets(googleSheetsConfig.scriptUrl, allData);
+          await syncToGoogleSheets(urlToUse, allData);
           setGoogleSheetsConfig({ ...googleSheetsConfig, lastSynced: new Date().toISOString() });
           toast.success('Đã đồng bộ dữ liệu lên Google Sheet thành công!');
       } catch (error) {
@@ -296,7 +328,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ bankInfo, allData, onImport
   };
 
   const handleRestoreFromCloud = async () => {
-       if (!googleSheetsConfig.scriptUrl) {
+       if (!googleSheetsConfig.scriptUrl && !GOOGLE_SCRIPT_URL) {
           toast.error('Vui lòng nhập đường dẫn Web App (Script URL) trước.');
           return;
       }
@@ -306,7 +338,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ bankInfo, allData, onImport
 
       setIsSyncing(true);
       try {
-          const data = await fetchFromGoogleSheets(googleSheetsConfig.scriptUrl);
+          const urlToUse = GOOGLE_SCRIPT_URL || googleSheetsConfig.scriptUrl;
+          const data = await fetchFromGoogleSheets(urlToUse);
            if (data.orders && data.products) {
               onImportData(data);
               toast.success('Đã tải và khôi phục dữ liệu từ Cloud thành công!');
@@ -336,57 +369,69 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ bankInfo, allData, onImport
         <div id="cloud-sync">
              <h3 className="text-xl font-semibold text-card-foreground mb-4 flex items-center gap-2">
                  <SparklesIcon className="w-6 h-6 text-yellow-500" />
-                 Đồng bộ Đám mây & Chia Sheet
+                 Đồng bộ Đám mây & Chia Sheet (Google Sheets)
              </h3>
              <div className="bg-card p-6 rounded-xl border border-border shadow-sm">
                  <p className="text-sm text-muted-foreground mb-4">
-                     Lưu trữ dữ liệu lên Google Sheets và tự động chia thành các tab: <strong>DonHang, KhoHang, KhachHang, NhanSu</strong> với định dạng cột chuẩn để dễ dàng in ấn và báo cáo.
+                     Lưu trữ dữ liệu lên Google Sheets. Hệ thống sẽ tự động cập nhật vào các tab: <strong>DonHang, KhoHang, KhachHang, NhanSu</strong>.
+                     <br/>
+                     <span className="text-primary font-semibold">Tính năng mới:</span> Giữ nguyên định dạng màu sắc và độ rộng cột của bạn khi đồng bộ.
                  </p>
                  
-                 <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                     <div className="flex justify-between items-center mb-2">
-                         <h4 className="font-semibold text-blue-800 dark:text-blue-300">Hướng dẫn cài đặt Script (Quan trọng)</h4>
-                         <button onClick={() => setShowScript(!showScript)} className="text-xs text-blue-600 dark:text-blue-400 underline font-bold">
-                             {showScript ? 'Ẩn mã' : 'Xem mã & Hướng dẫn'}
-                         </button>
-                     </div>
-                     
-                     {showScript && (
-                         <div className="space-y-3 mt-3 animate-fade-in">
-                             <ol className="list-decimal pl-5 text-sm text-gray-700 dark:text-gray-300 space-y-2">
-                                 <li>Truy cập <a href="https://sheets.new" target="_blank" className="underline text-blue-600">sheets.new</a> để tạo file mới.</li>
-                                 <li>Chọn <strong>Tiện ích mở rộng</strong> &gt; <strong>Apps Script</strong>.</li>
-                                 <li>Xóa hết mã cũ, sao chép và dán mã bên dưới vào.</li>
-                                 <li>Nhấn Lưu (💾).</li>
-                                 <li>Nhấn <strong>Triển khai (Deploy)</strong> &gt; <strong>Tùy chọn mới (New deployment)</strong>.</li>
-                                 <li>Chọn loại: <strong>Web app</strong>.</li>
-                                 <li>Mục "Ai có quyền truy cập" (Who has access): Chọn <strong>"Bất kỳ ai" (Anyone)</strong>. <span className="text-red-500 font-bold">Bước này bắt buộc.</span></li>
-                                 <li>Nhấn Triển khai, cấp quyền và copy URL dán vào ô bên dưới.</li>
-                             </ol>
-                             <div className="relative mt-2">
-                                 <pre className="bg-slate-800 text-green-400 p-3 rounded-md text-xs overflow-x-auto h-64 border border-slate-700">
-                                     {ADVANCED_SCRIPT_CODE}
-                                 </pre>
-                                 <button 
-                                    onClick={copyScriptToClipboard}
-                                    className="absolute top-2 right-2 bg-white/10 hover:bg-white/20 text-white px-2 py-1 rounded transition-colors text-xs flex items-center gap-1"
-                                 >
-                                     <ClipboardDocumentIcon className="w-4 h-4" /> Sao chép
-                                 </button>
-                             </div>
+                 {GOOGLE_SCRIPT_URL ? (
+                     <div className="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg mb-6 flex items-center gap-3">
+                         <CheckCircleIcon className="w-6 h-6 text-green-600" />
+                         <div>
+                             <p className="font-semibold text-green-800 dark:text-green-300">Hệ thống đã được kết nối tự động</p>
+                             <p className="text-xs text-green-700 dark:text-green-400">Link Google Apps Script đã được cấu hình trong mã nguồn.</p>
                          </div>
-                     )}
-                 </div>
+                     </div>
+                 ) : (
+                     <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                         <div className="flex justify-between items-center mb-2">
+                             <h4 className="font-semibold text-blue-800 dark:text-blue-300">Hướng dẫn cài đặt Script (Phiên bản V2)</h4>
+                             <button onClick={() => setShowScript(!showScript)} className="text-xs text-blue-600 dark:text-blue-400 underline font-bold">
+                                 {showScript ? 'Ẩn mã' : 'Xem mã & Hướng dẫn'}
+                             </button>
+                         </div>
+                         
+                         {showScript && (
+                             <div className="space-y-3 mt-3 animate-fade-in">
+                                 <ol className="list-decimal pl-5 text-sm text-gray-700 dark:text-gray-300 space-y-2">
+                                     <li>Mở file Google Sheet của bạn.</li>
+                                     <li>Chọn <strong>Tiện ích mở rộng</strong> &gt; <strong>Apps Script</strong>.</li>
+                                     <li>Xóa hết mã cũ, sao chép và dán mã bên dưới vào.</li>
+                                     <li>Nhấn Lưu (💾).</li>
+                                     <li>Nhấn <strong>Triển khai (Deploy)</strong> &gt; <strong>Tùy chọn quản lý (Manage deployments)</strong> > Nhấn nút bút chì (Edit).</li>
+                                     <li>Ở mục "Phiên bản" (Version), chọn <strong>"Phiên bản mới" (New version)</strong>. <span className="text-red-500 font-bold">Bắt buộc phải chọn New version.</span></li>
+                                     <li>Nhấn Triển khai (Deploy). Copy URL dán vào ô bên dưới.</li>
+                                 </ol>
+                                 <div className="relative mt-2">
+                                     <pre className="bg-slate-800 text-green-400 p-3 rounded-md text-xs overflow-x-auto h-64 border border-slate-700">
+                                         {ADVANCED_SCRIPT_CODE}
+                                     </pre>
+                                     <button 
+                                        onClick={copyScriptToClipboard}
+                                        className="absolute top-2 right-2 bg-white/10 hover:bg-white/20 text-white px-2 py-1 rounded transition-colors text-xs flex items-center gap-1"
+                                     >
+                                         <ClipboardDocumentIcon className="w-4 h-4" /> Sao chép
+                                     </button>
+                                 </div>
+                             </div>
+                         )}
+                     </div>
+                 )}
 
                  <div className="space-y-4">
                      <div>
                          <label className="block text-sm font-medium text-card-foreground mb-1">Đường dẫn Web App (Script URL)</label>
                          <input 
                             type="text" 
-                            value={googleSheetsConfig.scriptUrl}
+                            value={GOOGLE_SCRIPT_URL || googleSheetsConfig.scriptUrl}
                             onChange={(e) => setGoogleSheetsConfig({ ...googleSheetsConfig, scriptUrl: e.target.value })}
                             placeholder="https://script.google.com/macros/s/..."
-                            className="w-full p-3 border border-input rounded-md bg-muted text-sm font-mono"
+                            disabled={!!GOOGLE_SCRIPT_URL}
+                            className="w-full p-3 border border-input rounded-md bg-muted text-sm font-mono disabled:opacity-70 disabled:cursor-not-allowed"
                          />
                      </div>
                      

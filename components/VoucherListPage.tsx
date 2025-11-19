@@ -1,6 +1,8 @@
-import React from 'react';
+
+import React, { useState } from 'react';
 import type { Voucher } from '../types';
-import { PencilIcon, TrashIcon, PlusIcon, TicketIcon } from './icons';
+import { PencilIcon, TrashIcon, PlusIcon, TicketIcon, ExclamationTriangleIcon } from './icons';
+import Modal from './Modal';
 
 interface VoucherListPageProps {
   vouchers: Voucher[];
@@ -10,6 +12,8 @@ interface VoucherListPageProps {
 }
 
 const VoucherListPage: React.FC<VoucherListPageProps> = ({ vouchers, onEdit, onDelete, onAdd }) => {
+  const [voucherToDelete, setVoucherToDelete] = useState<Voucher | null>(null);
+
   const formatDiscount = (voucher: Voucher) => {
     if (voucher.discountType === 'fixed') {
       return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(voucher.discountValue);
@@ -20,6 +24,13 @@ const VoucherListPage: React.FC<VoucherListPageProps> = ({ vouchers, onEdit, onD
   const formatMinOrder = (value: number | undefined) => {
     if (!value || value === 0) return 'Không';
     return `Đơn tối thiểu ${new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value)}`;
+  }
+
+  const confirmDelete = () => {
+      if (voucherToDelete) {
+          onDelete(voucherToDelete.id);
+          setVoucherToDelete(null);
+      }
   }
 
   return (
@@ -69,7 +80,7 @@ const VoucherListPage: React.FC<VoucherListPageProps> = ({ vouchers, onEdit, onD
                     <td className="px-6 py-4 text-center">
                       <div className="flex items-center justify-center gap-2">
                         <button onClick={() => onEdit(v)} className="text-primary hover:opacity-80 p-1 rounded-full hover:bg-primary/10"><PencilIcon className="w-5 h-5" /></button>
-                        <button onClick={() => onDelete(v.id)} className="text-red-600 hover:text-red-900 p-1 rounded-full hover:bg-red-100 dark:hover:bg-red-900/50"><TrashIcon className="w-5 h-5" /></button>
+                        <button onClick={() => setVoucherToDelete(v)} className="text-red-600 hover:text-red-900 p-1 rounded-full hover:bg-red-100 dark:hover:bg-red-900/50"><TrashIcon className="w-5 h-5" /></button>
                       </div>
                     </td>
                   </tr>
@@ -79,6 +90,29 @@ const VoucherListPage: React.FC<VoucherListPageProps> = ({ vouchers, onEdit, onD
           </div>
         </div>
       )}
+
+      {/* Delete Confirmation Modal */}
+      <Modal isOpen={!!voucherToDelete} onClose={() => setVoucherToDelete(null)} title="Xác nhận xóa mã giảm giá">
+          <div className="space-y-4">
+              <div className="flex items-center gap-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                  <div className="p-3 bg-red-100 dark:bg-red-900/50 rounded-full text-red-600">
+                      <ExclamationTriangleIcon className="w-6 h-6" />
+                  </div>
+                  <div>
+                      <h3 className="font-bold text-red-800 dark:text-red-200">Bạn có chắc chắn muốn xóa?</h3>
+                      <p className="text-sm text-red-700 dark:text-red-300">
+                          Mã giảm giá <strong>{voucherToDelete?.code}</strong> sẽ bị xóa vĩnh viễn.
+                      </p>
+                  </div>
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                  <button onClick={() => setVoucherToDelete(null)} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 font-medium">Hủy bỏ</button>
+                  <button onClick={confirmDelete} className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 font-medium shadow-sm flex items-center gap-2">
+                      <TrashIcon className="w-4 h-4" /> Xóa mã giảm giá
+                  </button>
+              </div>
+          </div>
+      </Modal>
     </div>
   );
 };

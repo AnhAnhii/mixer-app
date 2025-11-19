@@ -1,12 +1,9 @@
 
 export const syncToGoogleSheets = async (scriptUrl: string, data: any): Promise<boolean> => {
   try {
-    // Google Apps Script Web App URL
     if (!scriptUrl) throw new Error("URL Script chưa được cấu hình");
 
-    // CRITICAL FIX: Use 'text/plain' instead of 'application/json'.
-    // Google Apps Script does not support CORS preflight for 'application/json' in simple web apps.
-    // Sending as 'text/plain' prevents the browser from sending an OPTIONS request, avoiding the CORS error.
+    // Use 'text/plain' to avoid CORS preflight issues with Google Apps Script
     const response = await fetch(scriptUrl, {
       method: 'POST',
       headers: {
@@ -32,7 +29,15 @@ export const fetchFromGoogleSheets = async (scriptUrl: string): Promise<any> => 
     try {
         if (!scriptUrl) throw new Error("URL Script chưa được cấu hình");
         
-        const response = await fetch(scriptUrl);
+        // Google Apps Script GET requests usually handle CORS well, but we ensure we handle the response correctly
+        const response = await fetch(scriptUrl, {
+            method: 'GET',
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
         const data = await response.json();
         
         if (data.error) {

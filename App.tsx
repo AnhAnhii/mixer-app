@@ -47,14 +47,15 @@ import {
     AppLogoIcon, ChartPieIcon, ShoppingBagIcon, CubeIcon, UserGroupIcon, TicketIcon, 
     Cog6ToothIcon, ChartBarIcon, Bars3Icon, XMarkIcon, ChatBubbleLeftEllipsisIcon, Squares2X2Icon,
     PlusIcon, MoonIcon, SunIcon, SparklesIcon, BoltIcon, ClockIcon, ViewColumnsIcon, RssIcon, ArrowUturnLeftIcon,
-    ArrowsPointingInIcon, ArrowsPointingOutIcon, ArrowPathIcon, UserCircleIcon, ShieldCheckIcon
+    ArrowsPointingInIcon, ArrowsPointingOutIcon, ArrowPathIcon, UserCircleIcon, ShieldCheckIcon, ArrowDownTrayIcon
 } from './components/icons';
 
 // Hooks & Data
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useAuth } from './hooks/useAuth';
 import { sampleProducts, sampleCustomers, sampleOrders, sampleFacebookPosts, sampleAutomationRules, sampleActivityLogs, sampleReturnRequests } from './data/sampleData';
-import { syncToGoogleSheets } from './services/googleSheetsService';
+import { syncToGoogleSheets, fetchFromGoogleSheets } from './services/googleSheetsService';
+import { GOOGLE_SCRIPT_URL } from './config';
 
 // Types
 import type { Order, Product, Customer, Voucher, BankInfo, ParsedOrderData, ParsedOrderItem, OrderItem, SocialPostConfig, UiMode, ThemeSettings, ActivityLog, AutomationRule, Page, User, DiscussionEntry, PaymentStatus, ReturnRequest, ReturnRequestItem, ProductVariant, GoogleSheetsConfig, Role } from './types';
@@ -77,6 +78,7 @@ const getApiKey = () => {
 const AppContent: React.FC = () => {
     const { currentUser, login, logout, hasPermission, users, setUsers, roles, setRoles, updateProfile } = useAuth();
     const [appIsLoading, setAppIsLoading] = useState(true);
+    const [isInitialSyncing, setIsInitialSyncing] = useState(false);
     
     // Main state
     const [products, setProducts] = useLocalStorage<Product[]>('products-v2', sampleProducts);
@@ -122,6 +124,57 @@ const AppContent: React.FC = () => {
     // Invoice State (must be outside renderView)
     const [invoiceOrder, setInvoiceOrder] = useState<Order | null>(null);
 
+    // --- AUTO LOAD ON STARTUP ---
+    useEffect(() => {
+        // 1. Update Config if Hardcoded URL is present
+        if (GOOGLE_SCRIPT_URL && googleSheetsConfig.scriptUrl !== GOOGLE_SCRIPT_URL) {
+            console.log("Updating Google Script URL from config file...");
+            setGoogleSheetsConfig(prev => ({ ...prev, scriptUrl: GOOGLE_SCRIPT_URL }));
+        }
+
+        // 2. Auto Fetch Data
+        const fetchData = async () => {
+            // Use GOOGLE_SCRIPT_URL directly or fall back to config state
+            const urlToUse = GOOGLE_SCRIPT_URL || googleSheetsConfig.scriptUrl;
+            
+            if (urlToUse) {
+                setIsInitialSyncing(true);
+                try {
+                    console.log("Auto-fetching data from Cloud...");
+                    const data = await fetchFromGoogleSheets(urlToUse);
+                    
+                    if (data && (data.orders || data.products)) {
+                         // Batch updates to minimize re-renders
+                         // Note: We trust the cloud data as the "Source of Truth" on startup
+                         if (data.orders) setOrders(data.orders);
+                         if (data.products) setProducts(data.products);
+                         if (data.customers) setCustomers(data.customers);
+                         if (data.vouchers) setVouchers(data.vouchers);
+                         if (data.users) setUsers(data.users);
+                         if (data.bankInfo) setBankInfo(data.bankInfo);
+                         if (data.roles) setRoles(data.roles);
+                         if (data.socialConfigs) setSocialConfigs(data.socialConfigs);
+                         if (data.activityLog) setActivityLog(data.activityLog);
+                         if (data.automationRules) setAutomationRules(data.automationRules);
+                         if (data.returnRequests) setReturnRequests(data.returnRequests);
+                         
+                         toast.success("Đã đồng bộ dữ liệu mới nhất từ hệ thống.");
+                    }
+                } catch (e) {
+                    console.error("Auto-fetch failed:", e);
+                    toast.error("Không thể kết nối đến dữ liệu đám mây. Đang sử dụng dữ liệu offline.");
+                } finally {
+                    setIsInitialSyncing(false);
+                }
+            }
+        };
+        
+        // Small delay to ensure app is mounted and hydration is done
+        const timer = setTimeout(() => fetchData(), 500);
+        return () => clearTimeout(timer);
+
+    }, []); // Run once on mount
+
     // Update refs whenever data changes
     useEffect(() => {
         allDataRef.current = {
@@ -130,25 +183,19 @@ const AppContent: React.FC = () => {
         googleConfigRef.current = googleSheetsConfig;
     }, [orders, products, customers, vouchers, bankInfo, socialConfigs, uiMode, theme, activityLog, automationRules, returnRequests, users, googleSheetsConfig]);
 
-    // --- Auto Sync Interval ---
+    // --- Auto Sync Interval (Background Push) ---
     useEffect(() => {
         const intervalId = setInterval(async () => {
             const config = googleConfigRef.current;
+            const urlToUse = GOOGLE_SCRIPT_URL || config.scriptUrl;
             
-            if (config.autoSync && config.scriptUrl && !isSyncingRef.current) {
-                console.log("Starting Auto Sync...");
+            if (config.autoSync && urlToUse && !isSyncingRef.current) {
                 isSyncingRef.current = true;
-                
                 try {
-                    await syncToGoogleSheets(config.scriptUrl, allDataRef.current);
-                    // Update lastSynced silently without re-triggering a full render loop just for this if possible,
-                    // but here we need to update the state to persist the timestamp.
-                    // To avoid infinite loops, we rely on the ref for the interval logic.
+                    await syncToGoogleSheets(urlToUse, allDataRef.current);
                     setGoogleSheetsConfig(prev => ({ ...prev, lastSynced: new Date().toISOString() }));
-                    console.log("Auto Sync Success");
                 } catch (error) {
                     console.error("Auto Sync Failed", error);
-                    // Optionally toast here if critical, but better to be silent for background tasks unless repeated failures.
                 } finally {
                     isSyncingRef.current = false;
                 }
@@ -156,26 +203,23 @@ const AppContent: React.FC = () => {
         }, 60000); // Run every 60 seconds
 
         return () => clearInterval(intervalId);
-    }, []); // Empty dependency array: runs once on mount, uses refs for current data
+    }, []); 
 
     // --- Data Migration & Safety Checks ---
     useEffect(() => {
-        // Check if users have roleId (migration for older versions)
         if (users.length > 0) {
-            // Find users that don't have a roleId
             const usersWithoutRole = users.filter(u => !u.roleId);
             if (usersWithoutRole.length > 0) {
                 console.log("Migrating user data: Adding default roles...", usersWithoutRole);
                 setUsers(prev => prev.map(u => {
                     if (!u.roleId) {
-                        return { ...u, roleId: 'role-admin' }; // Default legacy users to admin to prevent lockout
+                        return { ...u, roleId: 'role-admin' }; 
                     }
                     return u;
                 }));
-                toast.info("Hệ thống đã tự động cập nhật quyền hạn cho tài khoản cũ.");
             }
         }
-    }, [users, setUsers, toast]);
+    }, [users, setUsers]);
 
     // --- Activity & Automation Logic ---
     const logActivity = (description: string, entityId?: string, entityType?: ActivityLog['entityType']) => {
@@ -297,12 +341,26 @@ const AppContent: React.FC = () => {
     const handleViewReturnDetails = (request: ReturnRequest) => setViewingReturnRequest(request);
 
     const handleDeleteOrder = (orderId: string) => {
-        if (window.confirm('Bạn có chắc chắn muốn xóa đơn hàng này?')) {
-            setOrders(prev => prev.filter(o => o.id !== orderId));
-            logActivity(`<strong>${currentUser?.name}</strong> đã xóa đơn hàng <strong>#${orderId.substring(0, 8)}</strong>.`, orderId, 'order');
-            toast.success('Đã xóa đơn hàng.');
-        }
+        setOrders(prev => prev.filter(o => o.id !== orderId));
+        logActivity(`<strong>${currentUser?.name}</strong> đã xóa đơn hàng <strong>#${orderId.substring(0, 8)}</strong>.`, orderId, 'order');
+        toast.success('Đã xóa đơn hàng.');
     };
+
+    const handleDeleteCustomer = (customerId: string) => {
+        setCustomers(prev => prev.filter(c => c.id !== customerId));
+        logActivity(`<strong>${currentUser?.name}</strong> đã xóa khách hàng.`, customerId, 'customer');
+        toast.success('Đã xóa khách hàng.');
+    };
+
+    const handleBulkDeleteCustomers = (customerIds: string[]) => {
+         setCustomers(prev => prev.filter(c => !customerIds.includes(c.id)));
+         toast.success(`Đã xóa ${customerIds.length} khách hàng.`);
+    }
+
+    const handleDeleteProduct = (productId: string) => {
+        setProducts(prev => prev.filter(p => p.id !== productId));
+        toast.success('Đã xóa sản phẩm.');
+    }
 
     const handleUpdateStatus = (orderId: string, status: OrderStatus) => {
         setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status } : o));
@@ -314,7 +372,6 @@ const AppContent: React.FC = () => {
         const orderIdShort = order.id.substring(0, 8);
         const isEditing = orders.some(o => o.id === order.id);
         
-        // Update customers
         const customerIndex = customers.findIndex(c => c.id === customerToSave.id);
         if (customerIndex > -1) {
             setCustomers(prev => prev.map(c => c.id === customerToSave.id ? customerToSave : c));
@@ -322,10 +379,8 @@ const AppContent: React.FC = () => {
             setCustomers(prev => [...prev, customerToSave]);
         }
 
-        // Update Stock (Simplified logic for demo)
         setProducts(currentProducts => {
              const updatedProducts: Product[] = JSON.parse(JSON.stringify(currentProducts));
-             // Logic to deduct stock would go here
              return updatedProducts;
         });
 
@@ -388,7 +443,6 @@ const AppContent: React.FC = () => {
             const result = JSON.parse(response.text || '{}') as ParsedOrderData;
 
             if (result.items && result.items.length > 0) {
-                 // Convert parsed items to full OrderItems
                  const fullItems: OrderItem[] = [];
                  for (const parsedItem of result.items) {
                      const product = products.find(p => p.id === parsedItem.productId);
@@ -444,10 +498,8 @@ const AppContent: React.FC = () => {
     };
 
     const handleDeleteUser = (userId: string) => {
-        if(window.confirm('Bạn có chắc chắn muốn xóa nhân viên này?')) {
-            setUsers(prev => prev.filter(u => u.id !== userId));
-            toast.success('Đã xóa nhân viên.');
-        }
+        setUsers(prev => prev.filter(u => u.id !== userId));
+        toast.success('Đã xóa nhân viên.');
     };
 
     const handleAddRole = (role: Role) => {
@@ -461,10 +513,8 @@ const AppContent: React.FC = () => {
     }
 
     const handleDeleteRole = (roleId: string) => {
-        if(window.confirm('Xóa vai trò này?')) {
-            setRoles(prev => prev.filter(r => r.id !== roleId));
-            toast.success('Đã xóa vai trò.');
-        }
+        setRoles(prev => prev.filter(r => r.id !== roleId));
+        toast.success('Đã xóa vai trò.');
     }
     
     // --- Navigation Logic ---
@@ -503,14 +553,21 @@ const AppContent: React.FC = () => {
     const currentNavItem = navItems.find(item => item.id === view) || { label: 'Trang cá nhân' };
 
     const renderView = () => {
-        if (appIsLoading) return <DashboardSkeleton />;
+        if (appIsLoading || isInitialSyncing) {
+            return (
+                <div className="h-full flex flex-col items-center justify-center space-y-4">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+                    <p className="text-muted-foreground animate-pulse">Đang đồng bộ dữ liệu từ hệ thống...</p>
+                </div>
+            );
+        }
         
         switch (view) {
             case 'dashboard': return <Dashboard orders={orders} products={products} customers={customers} activityLog={activityLog} onViewOrder={handleViewOrderDetails} onViewCustomer={handleViewCustomerDetails} onNavigate={(viewId) => setView(viewId as Page)} onOpenVoucherForm={handleOpenVoucherForm} onOpenStrategy={() => setIsStrategyModalOpen(true)} />;
             case 'orders': return <OrderListPage orders={orders} onViewDetails={handleViewOrderDetails} onEdit={handleOpenOrderForm} onDelete={handleDeleteOrder} onUpdateStatus={handleUpdateStatus} onAddOrder={() => handleOpenOrderForm(null)} onAddQuickOrder={() => setIsQuickOrderOpen(true)} isAnyModalOpen={isAnyModalOpen} />;
             case 'workflow': return <KanbanBoardPage orders={orders} onUpdateStatus={handleUpdateStatus} onViewDetails={handleViewOrderDetails} />;
-            case 'inventory': return <InventoryList products={products} onEdit={handleOpenProductForm} onDelete={() => {}} onAddProduct={() => handleOpenProductForm(null)} />;
-            case 'customers': return <CustomerListPage customers={customers} onViewDetails={handleViewCustomerDetails} onEdit={handleOpenCustomerForm} onDelete={() => {}} onBulkDelete={() => {}} onAddCustomer={() => handleOpenCustomerForm(null)} />;
+            case 'inventory': return <InventoryList products={products} onEdit={handleOpenProductForm} onDelete={handleDeleteProduct} onAddProduct={() => handleOpenProductForm(null)} />;
+            case 'customers': return <CustomerListPage customers={customers} onViewDetails={handleViewCustomerDetails} onEdit={handleOpenCustomerForm} onDelete={handleDeleteCustomer} onBulkDelete={handleBulkDeleteCustomers} onAddCustomer={() => handleOpenCustomerForm(null)} />;
             case 'returns': return <ReturnsPage returnRequests={returnRequests} onUpdateStatus={(id, status) => setReturnRequests(prev => prev.map(r => r.id === id ? {...r, status} : r))} onViewDetails={handleViewReturnDetails} />;
             case 'vouchers': return <VoucherListPage vouchers={vouchers} onEdit={handleOpenVoucherForm} onDelete={(id) => setVouchers(prev => prev.filter(v => v.id !== id))} onAdd={() => handleOpenVoucherForm(null)} />;
             case 'social': return <SocialPage posts={sampleFacebookPosts} products={products} configs={socialConfigs} setConfigs={setSocialConfigs} />;
@@ -519,7 +576,6 @@ const AppContent: React.FC = () => {
             case 'reports': return <ReportsPage orders={orders} />;
             case 'staff': return <StaffManagement users={users} roles={roles} onAddUser={handleAddUser} onUpdateUser={handleUpdateUser} onDeleteUser={handleDeleteUser} onAddRole={handleAddRole} onUpdateRole={handleUpdateRole} onDeleteRole={handleDeleteRole} />;
             case 'profile': return <ProfilePage user={currentUser} activityLog={activityLog} onUpdateProfile={updateProfile} />;
-            // Pass ALL data to settings for backup/sync
             case 'settings': return <SettingsPage bankInfo={bankInfo} allData={{ orders, products, customers, vouchers, bankInfo, socialConfigs, uiMode, theme, activityLog, automationRules, returnRequests, users: users }} onImportData={() => {}} theme={theme} setTheme={setTheme} googleSheetsConfig={googleSheetsConfig} setGoogleSheetsConfig={setGoogleSheetsConfig} />;
             default: return <div className="text-center py-20">Tính năng đang phát triển hoặc bạn không có quyền truy cập.</div>;
         }

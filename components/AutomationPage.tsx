@@ -1,6 +1,8 @@
-import React from 'react';
+
+import React, { useState } from 'react';
 import type { AutomationRule } from '../types';
-import { BoltIcon, PencilIcon, PlusIcon, TrashIcon } from './icons';
+import { BoltIcon, PencilIcon, PlusIcon, TrashIcon, ExclamationTriangleIcon } from './icons';
+import Modal from './Modal';
 
 interface AutomationPageProps {
   rules: AutomationRule[];
@@ -11,6 +13,7 @@ interface AutomationPageProps {
 }
 
 const AutomationPage: React.FC<AutomationPageProps> = ({ rules, onAdd, onEdit, onDelete, onToggle }) => {
+  const [ruleToDelete, setRuleToDelete] = useState<AutomationRule | null>(null);
 
   const getTriggerText = (trigger: string) => {
     if (trigger === 'ORDER_CREATED') return 'Khi đơn hàng được tạo';
@@ -28,6 +31,13 @@ const AutomationPage: React.FC<AutomationPageProps> = ({ rules, onAdd, onEdit, o
       `Thêm nhãn "${a.value}" cho khách hàng`
     ).join(' và ');
   };
+  
+  const confirmDelete = () => {
+      if (ruleToDelete) {
+          onDelete(ruleToDelete.id);
+          setRuleToDelete(null);
+      }
+  }
 
   return (
     <div className="space-y-6">
@@ -62,7 +72,7 @@ const AutomationPage: React.FC<AutomationPageProps> = ({ rules, onAdd, onEdit, o
                                 <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${rule.isEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
                             </div>
                             <button onClick={() => onEdit(rule)} className="text-primary hover:opacity-80 p-1 rounded-full hover:bg-primary/10"><PencilIcon className="w-5 h-5" /></button>
-                            <button onClick={() => onDelete(rule.id)} className="text-red-600 hover:text-red-900 p-1 rounded-full hover:bg-red-100 dark:hover:bg-red-900/50"><TrashIcon className="w-5 h-5" /></button>
+                            <button onClick={() => setRuleToDelete(rule)} className="text-red-600 hover:text-red-900 p-1 rounded-full hover:bg-red-100 dark:hover:bg-red-900/50"><TrashIcon className="w-5 h-5" /></button>
                          </div>
                     </div>
                     <div className="text-sm text-muted-foreground space-y-1">
@@ -75,6 +85,29 @@ const AutomationPage: React.FC<AutomationPageProps> = ({ rules, onAdd, onEdit, o
           ))}
         </div>
       )}
+
+      {/* Delete Confirmation Modal */}
+      <Modal isOpen={!!ruleToDelete} onClose={() => setRuleToDelete(null)} title="Xác nhận xóa quy tắc">
+          <div className="space-y-4">
+              <div className="flex items-center gap-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                  <div className="p-3 bg-red-100 dark:bg-red-900/50 rounded-full text-red-600">
+                      <ExclamationTriangleIcon className="w-6 h-6" />
+                  </div>
+                  <div>
+                      <h3 className="font-bold text-red-800 dark:text-red-200">Bạn có chắc chắn muốn xóa?</h3>
+                      <p className="text-sm text-red-700 dark:text-red-300">
+                          Quy tắc <strong>{ruleToDelete?.name}</strong> sẽ bị xóa vĩnh viễn và ngừng hoạt động.
+                      </p>
+                  </div>
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                  <button onClick={() => setRuleToDelete(null)} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 font-medium">Hủy bỏ</button>
+                  <button onClick={confirmDelete} className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 font-medium shadow-sm flex items-center gap-2">
+                      <TrashIcon className="w-4 h-4" /> Xóa quy tắc
+                  </button>
+              </div>
+          </div>
+      </Modal>
     </div>
   );
 };

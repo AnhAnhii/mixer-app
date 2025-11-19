@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import type { User, Role, Permission } from '../types';
-import { PlusIcon, PencilIcon, TrashIcon, ShieldCheckIcon, UserCircleIcon } from './icons';
+import { PlusIcon, PencilIcon, TrashIcon, ShieldCheckIcon, UserCircleIcon, ExclamationTriangleIcon } from './icons';
 import Modal from './Modal';
 
 interface StaffManagementProps {
@@ -33,6 +33,10 @@ const StaffManagement: React.FC<StaffManagementProps> = ({ users, roles, onAddUs
   
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [editingRole, setEditingRole] = useState<Role | null>(null);
+
+  // Delete States
+  const [userToDelete, setUserToDelete] = useState<User | null>(null);
+  const [roleToDelete, setRoleToDelete] = useState<Role | null>(null);
 
   // --- User Form State ---
   const [userName, setUserName] = useState('');
@@ -136,6 +140,20 @@ const StaffManagement: React.FC<StaffManagementProps> = ({ users, roles, onAddUs
       setRolePerms(newSet);
   }
 
+  const confirmDeleteUser = () => {
+      if (userToDelete) {
+          onDeleteUser(userToDelete.id);
+          setUserToDelete(null);
+      }
+  }
+
+  const confirmDeleteRole = () => {
+      if (roleToDelete) {
+          onDeleteRole(roleToDelete.id);
+          setRoleToDelete(null);
+      }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center border-b border-border pb-4">
@@ -198,7 +216,7 @@ const StaffManagement: React.FC<StaffManagementProps> = ({ users, roles, onAddUs
                                           <div className="flex items-center justify-center gap-2">
                                               <button onClick={() => handleOpenUserModal(user)} className="p-1 text-primary hover:bg-primary/10 rounded"><PencilIcon className="w-4 h-4"/></button>
                                               {user.roleId !== 'role-admin' && (
-                                                  <button onClick={() => onDeleteUser(user.id)} className="p-1 text-red-600 hover:bg-red-100 rounded"><TrashIcon className="w-4 h-4"/></button>
+                                                  <button onClick={() => setUserToDelete(user)} className="p-1 text-red-600 hover:bg-red-100 rounded"><TrashIcon className="w-4 h-4"/></button>
                                               )}
                                           </div>
                                       </td>
@@ -229,7 +247,7 @@ const StaffManagement: React.FC<StaffManagementProps> = ({ users, roles, onAddUs
                               {!role.isSystem && (
                                   <div className="flex gap-1">
                                       <button onClick={() => handleOpenRoleModal(role)} className="p-1 hover:bg-muted rounded"><PencilIcon className="w-4 h-4 text-muted-foreground"/></button>
-                                      <button onClick={() => onDeleteRole(role.id)} className="p-1 hover:bg-red-100 rounded"><TrashIcon className="w-4 h-4 text-red-500"/></button>
+                                      <button onClick={() => setRoleToDelete(role)} className="p-1 hover:bg-red-100 rounded"><TrashIcon className="w-4 h-4 text-red-500"/></button>
                                   </div>
                               )}
                           </div>
@@ -319,6 +337,52 @@ const StaffManagement: React.FC<StaffManagementProps> = ({ users, roles, onAddUs
                   <button type="submit" className="btn-primary px-4 py-2">Lưu</button>
               </div>
           </form>
+      </Modal>
+
+      {/* Delete User Confirmation Modal */}
+      <Modal isOpen={!!userToDelete} onClose={() => setUserToDelete(null)} title="Xác nhận xóa nhân viên">
+          <div className="space-y-4">
+              <div className="flex items-center gap-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                  <div className="p-3 bg-red-100 dark:bg-red-900/50 rounded-full text-red-600">
+                      <ExclamationTriangleIcon className="w-6 h-6" />
+                  </div>
+                  <div>
+                      <h3 className="font-bold text-red-800 dark:text-red-200">Bạn có chắc chắn muốn xóa?</h3>
+                      <p className="text-sm text-red-700 dark:text-red-300">
+                          Nhân viên <strong>{userToDelete?.name}</strong> sẽ bị xóa vĩnh viễn khỏi hệ thống.
+                      </p>
+                  </div>
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                  <button onClick={() => setUserToDelete(null)} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 font-medium">Hủy bỏ</button>
+                  <button onClick={confirmDeleteUser} className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 font-medium shadow-sm flex items-center gap-2">
+                      <TrashIcon className="w-4 h-4" /> Xóa nhân viên
+                  </button>
+              </div>
+          </div>
+      </Modal>
+
+      {/* Delete Role Confirmation Modal */}
+      <Modal isOpen={!!roleToDelete} onClose={() => setRoleToDelete(null)} title="Xác nhận xóa vai trò">
+          <div className="space-y-4">
+              <div className="flex items-center gap-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                  <div className="p-3 bg-red-100 dark:bg-red-900/50 rounded-full text-red-600">
+                      <ExclamationTriangleIcon className="w-6 h-6" />
+                  </div>
+                  <div>
+                      <h3 className="font-bold text-red-800 dark:text-red-200">Bạn có chắc chắn muốn xóa?</h3>
+                      <p className="text-sm text-red-700 dark:text-red-300">
+                          Vai trò <strong>{roleToDelete?.name}</strong> sẽ bị xóa. Các nhân viên đang giữ vai trò này sẽ mất quyền hạn.
+                      </p>
+                  </div>
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                  <button onClick={() => setRoleToDelete(null)} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 font-medium">Hủy bỏ</button>
+                  <button onClick={confirmDeleteRole} className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 font-medium shadow-sm flex items-center gap-2">
+                      <TrashIcon className="w-4 h-4" /> Xóa vai trò
+                  </button>
+              </div>
+          </div>
       </Modal>
     </div>
   );
