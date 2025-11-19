@@ -254,6 +254,20 @@ const AppContent: React.FC = () => {
     const handleOpenReturnRequest = (order: Order) => setReturnRequestOrder(order);
     const handleViewReturnDetails = (request: ReturnRequest) => setViewingReturnRequest(request);
 
+    const handleDeleteOrder = (orderId: string) => {
+        if (window.confirm('Bạn có chắc chắn muốn xóa đơn hàng này?')) {
+            setOrders(prev => prev.filter(o => o.id !== orderId));
+            logActivity(`<strong>${currentUser?.name}</strong> đã xóa đơn hàng <strong>#${orderId.substring(0, 8)}</strong>.`, orderId, 'order');
+            toast.success('Đã xóa đơn hàng.');
+        }
+    };
+
+    const handleUpdateStatus = (orderId: string, status: OrderStatus) => {
+        setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status } : o));
+        logActivity(`<strong>${currentUser?.name}</strong> đã cập nhật trạng thái đơn hàng <strong>#${orderId.substring(0, 8)}</strong> thành <strong>${status}</strong>.`, orderId, 'order');
+        toast.success('Đã cập nhật trạng thái.');
+    };
+
     const handleSaveOrder = (order: Order, customerToSave: Customer) => {
         const orderIdShort = order.id.substring(0, 8);
         const isEditing = orders.some(o => o.id === order.id);
@@ -451,8 +465,8 @@ const AppContent: React.FC = () => {
         
         switch (view) {
             case 'dashboard': return <Dashboard orders={orders} products={products} customers={customers} activityLog={activityLog} onViewOrder={handleViewOrderDetails} onViewCustomer={handleViewCustomerDetails} onNavigate={(viewId) => setView(viewId as Page)} onOpenVoucherForm={handleOpenVoucherForm} onOpenStrategy={() => setIsStrategyModalOpen(true)} />;
-            case 'orders': return <OrderListPage orders={orders} onViewDetails={handleViewOrderDetails} onEdit={handleOpenOrderForm} onDelete={(id) => { /* stub */ }} onUpdateStatus={(id, status) => {/* stub */}} onAddOrder={() => handleOpenOrderForm(null)} onAddQuickOrder={() => setIsQuickOrderOpen(true)} isAnyModalOpen={isAnyModalOpen} />;
-            case 'workflow': return <KanbanBoardPage orders={orders} onUpdateStatus={(id, status) => setOrders(prev => prev.map(o => o.id === id ? { ...o, status } : o))} onViewDetails={handleViewOrderDetails} />;
+            case 'orders': return <OrderListPage orders={orders} onViewDetails={handleViewOrderDetails} onEdit={handleOpenOrderForm} onDelete={handleDeleteOrder} onUpdateStatus={handleUpdateStatus} onAddOrder={() => handleOpenOrderForm(null)} onAddQuickOrder={() => setIsQuickOrderOpen(true)} isAnyModalOpen={isAnyModalOpen} />;
+            case 'workflow': return <KanbanBoardPage orders={orders} onUpdateStatus={handleUpdateStatus} onViewDetails={handleViewOrderDetails} />;
             case 'inventory': return <InventoryList products={products} onEdit={handleOpenProductForm} onDelete={() => {}} onAddProduct={() => handleOpenProductForm(null)} />;
             case 'customers': return <CustomerListPage customers={customers} onViewDetails={handleViewCustomerDetails} onEdit={handleOpenCustomerForm} onDelete={() => {}} onBulkDelete={() => {}} onAddCustomer={() => handleOpenCustomerForm(null)} />;
             case 'returns': return <ReturnsPage returnRequests={returnRequests} onUpdateStatus={(id, status) => setReturnRequests(prev => prev.map(r => r.id === id ? {...r, status} : r))} onViewDetails={handleViewReturnDetails} />;
@@ -608,7 +622,7 @@ const AppContent: React.FC = () => {
                 isOpen={!!viewingOrder} 
                 onClose={() => setViewingOrder(null)} 
                 onEdit={(order) => { setViewingOrder(null); setEditingOrder(order); setIsOrderFormOpen(true); }}
-                onUpdateStatus={(id, status) => setOrders(prev => prev.map(o => o.id === id ? {...o, status} : o))}
+                onUpdateStatus={handleUpdateStatus}
                 onUpdateShipping={(id, provider, code) => setOrders(prev => prev.map(o => o.id === id ? {...o, shippingProvider: provider, trackingCode: code, status: OrderStatus.Shipped} : o))}
                 onOpenMessageTemplates={(order) => setMessageTemplateOrder(order)}
                 onAddDiscussion={(id, text) => {
@@ -618,9 +632,13 @@ const AppContent: React.FC = () => {
                 }}
                 onConfirmPayment={(id) => setOrders(prev => prev.map(o => o.id === id ? {...o, paymentStatus: 'Paid', status: OrderStatus.Processing} : o))}
                 onOpenReturnRequest={(order) => { setViewingOrder(null); setReturnRequestOrder(order); }}
-                onGeneratePaymentLink={(order) => { 
+                onPrintInvoice={(order) => { 
                     setViewingOrder(null); 
                     setInvoiceOrder(order); 
+                }}
+                onGeneratePaymentLink={(order) => {
+                    setPayingOrder(order);
+                    setIsVnPayModalOpen(true);
                 }}
             />
 
